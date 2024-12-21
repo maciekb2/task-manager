@@ -20,18 +20,14 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	TaskManager_SubmitTask_FullMethodName       = "/taskmanager.TaskManager/SubmitTask"
-	TaskManager_CheckTaskStatus_FullMethodName  = "/taskmanager.TaskManager/CheckTaskStatus"
 	TaskManager_StreamTaskStatus_FullMethodName = "/taskmanager.TaskManager/StreamTaskStatus"
 )
 
 // TaskManagerClient is the client API for TaskManager service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-//
-// Definicja serwisu
 type TaskManagerClient interface {
 	SubmitTask(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*TaskResponse, error)
-	CheckTaskStatus(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
 	StreamTaskStatus(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StatusResponse], error)
 }
 
@@ -47,16 +43,6 @@ func (c *taskManagerClient) SubmitTask(ctx context.Context, in *TaskRequest, opt
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TaskResponse)
 	err := c.cc.Invoke(ctx, TaskManager_SubmitTask_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *taskManagerClient) CheckTaskStatus(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(StatusResponse)
-	err := c.cc.Invoke(ctx, TaskManager_CheckTaskStatus_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -85,11 +71,8 @@ type TaskManager_StreamTaskStatusClient = grpc.ServerStreamingClient[StatusRespo
 // TaskManagerServer is the server API for TaskManager service.
 // All implementations must embed UnimplementedTaskManagerServer
 // for forward compatibility.
-//
-// Definicja serwisu
 type TaskManagerServer interface {
 	SubmitTask(context.Context, *TaskRequest) (*TaskResponse, error)
-	CheckTaskStatus(context.Context, *StatusRequest) (*StatusResponse, error)
 	StreamTaskStatus(*StatusRequest, grpc.ServerStreamingServer[StatusResponse]) error
 	mustEmbedUnimplementedTaskManagerServer()
 }
@@ -103,9 +86,6 @@ type UnimplementedTaskManagerServer struct{}
 
 func (UnimplementedTaskManagerServer) SubmitTask(context.Context, *TaskRequest) (*TaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SubmitTask not implemented")
-}
-func (UnimplementedTaskManagerServer) CheckTaskStatus(context.Context, *StatusRequest) (*StatusResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CheckTaskStatus not implemented")
 }
 func (UnimplementedTaskManagerServer) StreamTaskStatus(*StatusRequest, grpc.ServerStreamingServer[StatusResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamTaskStatus not implemented")
@@ -149,24 +129,6 @@ func _TaskManager_SubmitTask_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TaskManager_CheckTaskStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(StatusRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TaskManagerServer).CheckTaskStatus(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TaskManager_CheckTaskStatus_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TaskManagerServer).CheckTaskStatus(ctx, req.(*StatusRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _TaskManager_StreamTaskStatus_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(StatusRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -188,10 +150,6 @@ var TaskManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SubmitTask",
 			Handler:    _TaskManager_SubmitTask_Handler,
-		},
-		{
-			MethodName: "CheckTaskStatus",
-			Handler:    _TaskManager_CheckTaskStatus_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

@@ -9,7 +9,8 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/maciekb2/task-manager/proto" // Import wygenerowanego kodu z Protobuf
+	"github.com/go-redis/redis/v8"
+	pb "github.com/maciekb2/task-manager/proto"
 
 	"google.golang.org/grpc"
 )
@@ -17,25 +18,28 @@ import (
 type task struct {
 	id          string
 	description string
-	priority    string
+	priority    pb.TaskPriority
 	status      string
 }
 
 type server struct {
 	pb.UnimplementedTaskManagerServer
-	tasks       map[string]*task
+	rdb         *redis.Client
 	mu          sync.Mutex
 	subscribers map[string]chan string
 }
 
 func newServer() *server {
+	rdb := redis.NewClient(&redis.Options{
+		Addr: "redis-service:6379", // Adres usługi Redis w Kubernetes
+	})
+
 	return &server{
-		tasks:       make(map[string]*task),
+		rdb:         rdb,
 		subscribers: make(map[string]chan string),
 	}
 }
 
-// SubmitTask: Dodaje zadanie z priorytetem
 func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskResponse, error) {
 	taskID := fmt.Sprintf("%d", rand.Int())
 	task := &task{
@@ -46,32 +50,34 @@ func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskR
 	}
 
 	s.mu.Lock()
-	s.tasks[taskID] = task
 	if _, exists := s.subscribers[taskID]; !exists {
 		s.subscribers[taskID] = make(chan string, 10)
 	}
 	s.mu.Unlock()
 
-	// Asynchroniczne przetwarzanie zadania
-	go s.processTask(taskID)
+	// Dodawanie zadania do kolejki Redis
+	if err := s.rdb.ZAdd(ctx, "tasks", &redis.Z{
+		score:= float64(req.Priority), // Priorytet jako score
+		Member: taskID,
+	}).Err(); err != nil {
+		return nil, fmt.Errorf("could not add task to queue: %v", err)
+	}
+
+	go s.processTasks(ctx) // Uruchamianie przetwarzania zadań
 
 	return &pb.TaskResponse{TaskId: taskID}, nil
 }
 
-// CheckTaskStatus: Zwraca aktualny status zadania
 func (s *server) CheckTaskStatus(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
-	s.mu.Lock()
-	task, exists := s.tasks[req.TaskId]
-	s.mu.Unlock()
-
-	if !exists {
+	// Pobieranie statusu z Redisa
+	status, err := s.rdb.HGet(ctx, "task_status:"+req.TaskId, "status").Result()
+	if err != nil {
 		return &pb.StatusResponse{Status: "UNKNOWN TASK"}, nil
 	}
 
-	return &pb.StatusResponse{Status: task.status}, nil
+	return &pb.StatusResponse{Status: status}, nil
 }
 
-// StreamTaskStatus: Wysyła status zadania w czasie rzeczywistym
 func (s *server) StreamTaskStatus(req *pb.StatusRequest, stream pb.TaskManager_StreamTaskStatusServer) error {
 	s.mu.Lock()
 	ch, exists := s.subscribers[req.TaskId]
@@ -92,34 +98,47 @@ func (s *server) StreamTaskStatus(req *pb.StatusRequest, stream pb.TaskManager_S
 	return nil
 }
 
-// processTask: Symuluje przetwarzanie zadania
-func (s *server) processTask(taskID string) {
-	s.mu.Lock()
-	task := s.tasks[taskID]
-	s.mu.Unlock()
+func (s *server) processTasks(ctx context.Context) {
+	for {
+		// Pobieranie zadania o najwyższym priorytecie z kolejki Redis
+		tasks, err := s.rdb.ZPopMax(ctx, "tasks", 1).Result()
+		if err != nil {
+			log.Printf("Could not get task from queue: %v", err)
+			time.Sleep(1 * time.Second) // Odczekanie przed ponowną próbą
+			continue
+		}
 
-	// Aktualizacja statusu na IN_PROGRESS
-	s.updateTaskStatus(taskID, "IN_PROGRESS")
-	time.Sleep(5 * time.Second) // Symulacja przetwarzania
+		if len(tasks) == 0 {
+			time.Sleep(1 * time.Second) // Odczekanie, jeśli kolejka jest pusta
+			continue
+		}
 
-	// Symulacja sukcesu lub porażki
-	if rand.Float32() < 0.8 {
-		s.updateTaskStatus(taskID, "COMPLETED")
-	} else {
-		s.updateTaskStatus(taskID, "FAILED")
+		taskID := tasks[0].Member.(string)
+
+		// Aktualizacja statusu na IN_PROGRESS
+		s.updateTaskStatus(ctx, taskID, "IN_PROGRESS")
+		time.Sleep(5 * time.Second) // Symulacja przetwarzania
+
+		// Symulacja sukcesu lub porażki
+		if rand.Float32() < 0.8 {
+			s.updateTaskStatus(ctx, taskID, "COMPLETED")
+		} else {
+			s.updateTaskStatus(ctx, taskID, "FAILED")
+		}
 	}
 }
 
-// updateTaskStatus: Aktualizuje status zadania i powiadamia subskrybentów
-func (s *server) updateTaskStatus(taskID, status string) {
+func (s *server) updateTaskStatus(ctx context.Context, taskID, status string) {
 	s.mu.Lock()
-	if task, exists := s.tasks[taskID]; exists {
-		task.status = status
-		if ch, ok := s.subscribers[taskID]; ok {
-			ch <- status
-		}
+	if ch, ok := s.subscribers[taskID]; ok {
+		ch <- status
 	}
 	s.mu.Unlock()
+
+	// Aktualizacja statusu w Redisie
+	if err := s.rdb.HSet(ctx, "task_status:"+taskID, "status", status).Err(); err != nil {
+		log.Printf("Could not update task status: %v", err)
+	}
 }
 
 func main() {
