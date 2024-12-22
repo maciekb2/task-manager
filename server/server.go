@@ -1,3 +1,6 @@
+// Package main implements the gRPC server for the Task Manager application.
+// This server handles task submission, status monitoring, and task processing.
+
 package main
 
 import (
@@ -42,11 +45,21 @@ func newServer() *server {
 
 func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskResponse, error) {
 	taskID := fmt.Sprintf("%d", rand.Int())
-	task := &task{
+	newTask := &task{
 		id:          taskID,
 		description: req.TaskDescription,
 		priority:    req.Priority,
 		status:      "QUEUED",
+	}
+
+	// Store the new task in Redis
+	if err := s.rdb.HSet(ctx, "task:"+taskID, map[string]interface{}{
+		"id":          newTask.id,
+		"description": newTask.description,
+		"priority":    newTask.priority,
+		"status":      newTask.status,
+	}).Err(); err != nil {
+		return nil, fmt.Errorf("could not store task: %v", err)
 	}
 
 	s.mu.Lock()
@@ -57,7 +70,7 @@ func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskR
 
 	// Dodawanie zadania do kolejki Redis
 	if err := s.rdb.ZAdd(ctx, "tasks", &redis.Z{
-		score:= float64(req.Priority), // Priorytet jako score
+		Score:  float64(req.Priority), // Priorytet jako score
 		Member: taskID,
 	}).Err(); err != nil {
 		return nil, fmt.Errorf("could not add task to queue: %v", err)

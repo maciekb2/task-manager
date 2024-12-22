@@ -1,3 +1,5 @@
+// Package main implements the gRPC client for interacting with the Task Manager server.
+// It demonstrates how to submit tasks and stream their status updates.
 package main
 
 import (
