@@ -1,21 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: grpc-server-deployment
+  name: taskmanager-server-deployment
   labels:
-    app: grpc-server
+    app: taskmanager-server
 spec:
   replicas: 2 # Początkowa liczba replik
   selector:
     matchLabels:
-      app: grpc-server
+      app: taskmanager-server
   template:
     metadata:
       labels:
-        app: grpc-server
+        app: taskmanager-server
     spec:
       containers:
-        - name: grpc-server
+        - name: taskmanager-server
           image: maciekb2/task-manager-server:latest
           ports:
             - containerPort: 50051
@@ -27,8 +27,7 @@ spec:
               cpu: "500m"
               memory: "512Mi"
           readinessProbe:
-            httpGet:
-              path: /
+            tcpSocket:
               port: 50051
             initialDelaySeconds: 5
             periodSeconds: 10
@@ -36,12 +35,12 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: grpc-server-hpa
+  name: taskmanager-server-hpa
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: grpc-server-deployment
+    name: taskmanager-server-deployment
   minReplicas: 2
   maxReplicas: 10
   metrics:

@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: promtail
+  labels:
+    app: promtail
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: promtail
+  template:
+    metadata:
+      labels:
+        app: promtail
+    spec:
+      serviceAccountName: promtail
+      containers:
+      - name: promtail
+        image: grafana/promtail:latest
+        args:
+          - -config.file=/etc/promtail/config.yaml
+        volumeMounts:
+        - name: config
+          mountPath: /etc/promtail
+        - name: varlibdocker
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+      volumes:
+      - name: config
+        configMap:
+          name: promtail-config
+      - name: varlibdocker
+        hostPath:
+          path: /var/lib/docker/containers
+          type: Directory
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+data:
+  config.yaml: |
+    server:
+      http_listen_port: 9080
+    clients:
+      - url: http://10.110.123.252:3100/loki/api/v1/push
+    positions:
+      filename: /tmp/positions.yaml
+
+    scrape_configs:
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          # - source_labels: [__meta_kubernetes_pod_container_name]
+          #   target_label: container_name
+          # - source_labels: [__meta_kubernetes_pod_node_name]
+          #   target_label: node_name
+          # - source_labels: [__meta_kubernetes_namespace]
+          #   target_label: namespace
+          # - source_labels: [__meta_kubernetes_service_name]
+          #   target_label: service_name
+          # - source_labels: [__meta_kubernetes_pod_ip]
+          #   target_label: pod_ip
+          # - source_labels: [__meta_kubernetes_pod_annotation_session_id]
+          #   target_label: session_id
+          # - source_labels: [__meta_kubernetes_pod_label_module_name]
+          #   target_label: module_name
+          # - source_labels: [__meta_kubernetes_pod_annotation_event_type]
+          #   target_label: event_type
+          - target_label: __path__
+            replacement: /var/lib/docker/containers/*/*-json.log
