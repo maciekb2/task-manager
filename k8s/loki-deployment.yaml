@@ -83,6 +83,30 @@ data:
       allow_structured_metadata: false
 ---
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+data:
+  loki-dashboard.json: |
+    {
+      "dashboard": {
+        "title": "Loki Logs",
+        "panels": [
+          {
+            "type": "logs",
+            "title": "Pod Logs",
+            "targets": [
+              {
+                "expr": "{job=\"kubernetes-pods\"}"
+              }
+            ]
+          }
+        ]
+      }
+    }
+    
+---
+apiVersion: v1
 kind: Service
 metadata:
   name: loki

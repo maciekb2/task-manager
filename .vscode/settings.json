@@ -1,0 +1,5 @@
+{
+    "yaml.schemas": {
+        "kubernetes://schema/apps/v1%40deployment": "file:///home/macie/dockers/asynchronous-task-manager/k8s/tempo-deployment.yaml"
+    }
+}
