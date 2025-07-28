@@ -29,7 +29,8 @@ The Asynchronous Task Manager is a Dockerized application designed to manage and
     ```
 
 ## Usage
-1. Will be added later
+See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for a detailed overview of how the
+project is structured and how to build and deploy the services.
 
 ## API Endpoints
 - `POST /tasks`: Create a new task
