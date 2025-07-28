@@ -15,6 +15,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	pb "github.com/maciekb2/task-manager/proto"
 
+	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc"
 )
 
@@ -61,6 +62,8 @@ func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskR
 	}).Err(); err != nil {
 		return nil, fmt.Errorf("could not store task: %v", err)
 	}
+
+	tasksSubmitted.Add(ctx, 1, attribute.String("priority", req.Priority.String()))
 
 	s.mu.Lock()
 	if _, exists := s.subscribers[taskID]; !exists {
@@ -130,14 +133,17 @@ func (s *server) processTasks(ctx context.Context) {
 
 		// Aktualizacja statusu na IN_PROGRESS
 		s.updateTaskStatus(ctx, taskID, "IN_PROGRESS")
+		start := time.Now()
 		time.Sleep(5 * time.Second) // Symulacja przetwarzania
 
 		// Symulacja sukcesu lub porażki
-		if rand.Float32() < 0.8 {
-			s.updateTaskStatus(ctx, taskID, "COMPLETED")
-		} else {
-			s.updateTaskStatus(ctx, taskID, "FAILED")
+		status := "COMPLETED"
+		if rand.Float32() >= 0.8 {
+			status = "FAILED"
 		}
+		s.updateTaskStatus(ctx, taskID, status)
+		taskDuration.Record(ctx, time.Since(start).Seconds())
+		tasksProcessed.Add(ctx, 1, attribute.String("status", status))
 	}
 }
 

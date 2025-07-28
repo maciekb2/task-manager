@@ -13,12 +13,16 @@ spec:
     metadata:
       labels:
         app: taskmanager-server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "2222"
     spec:
       containers:
         - name: taskmanager-server
           image: maciekb2/task-manager-server:latest
           ports:
             - containerPort: 50051
+            - containerPort: 2222
           resources:
             requests:
               cpu: "100m"

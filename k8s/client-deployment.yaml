@@ -11,7 +11,12 @@ spec:
     metadata:
       labels:
         app: taskmanager-client
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "2223"
     spec:
       containers:
       - name: client
         image: maciekb2/task-manager-client:latest
+        ports:
+        - containerPort: 2223
