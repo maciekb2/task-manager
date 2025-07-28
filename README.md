@@ -9,6 +9,7 @@ The Asynchronous Task Manager is a Dockerized application designed to manage and
 - Dockerized for easy deployment
 - Kubernetes support for orchestration
 - RESTful API for task management
+- OpenTelemetry instrumentation with Tempo and Prometheus exporters
 
 ## Prerequisites
 - Docker
