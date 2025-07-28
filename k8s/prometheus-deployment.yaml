@@ -25,10 +25,10 @@ data:
       - job_name: 'redis-exporter'
         static_configs:
         - targets:
-          - 'redis-exporter:9121'
+          - 'redis-exporter.default.svc.cluster.local:9121'
 
     remote_write:
-      - url: "http://mimir.monitoring.svc.cluster.local:9090/api/v1/push"
+      - url: "http://mimir.default.svc.cluster.local:9090/api/v1/push"
 
 
 ---
