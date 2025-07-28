@@ -14,6 +14,13 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
+	shutdown, err := initTelemetry(ctx)
+	if err != nil {
+		log.Fatalf("telemetry init failed: %v", err)
+	}
+	defer shutdown(ctx)
+
 	conn := connectToServer()
 	defer conn.Close()
 
@@ -32,7 +39,7 @@ func main() {
 }
 
 func connectToServer() *grpc.ClientConn {
-	conn, err := grpc.Dial("taskmanager-service:50051", grpc.WithInsecure())
+	conn, err := grpc.Dial("taskmanager-service:50051", dialOpts()...)
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}

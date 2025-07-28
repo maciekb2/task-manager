@@ -155,13 +155,19 @@ func (s *server) updateTaskStatus(ctx context.Context, taskID, status string) {
 }
 
 func main() {
-	// Inicjalizacja serwera
+	ctx := context.Background()
+	shutdown, err := initTelemetry(ctx)
+	if err != nil {
+		log.Fatalf("telemetry init failed: %v", err)
+	}
+	defer shutdown(ctx)
+
 	lis, err := net.Listen("tcp", ":50051")
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(serverOpts()...)
 	pb.RegisterTaskManagerServer(grpcServer, newServer())
 
 	log.Println("Serwer gRPC działa na porcie :50051")
