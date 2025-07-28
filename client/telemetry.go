@@ -10,12 +10,19 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdkresource "go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+)
+
+var (
+	tasksSent   metric.Int64Counter
+	tasksFailed metric.Int64Counter
 )
 
 func initTelemetry(ctx context.Context) (func(context.Context) error, error) {
@@ -47,6 +54,20 @@ func initTelemetry(ctx context.Context) (func(context.Context) error, error) {
 		sdkmetric.WithReader(promExp),
 	)
 	otel.SetMeterProvider(mp)
+
+	meter := otel.GetMeterProvider().Meter("taskmanager-client")
+	if tasksSent, err = meter.Int64Counter(
+		"tasks_sent",
+		metric.WithDescription("Number of tasks successfully sent"),
+	); err != nil {
+		return nil, err
+	}
+	if tasksFailed, err = meter.Int64Counter(
+		"tasks_failed",
+		metric.WithDescription("Number of task send failures"),
+	); err != nil {
+		return nil, err
+	}
 
 	go func() {
 		http.Handle("/metrics", promhttp.Handler())

@@ -10,6 +10,7 @@ import (
 
 	pb "github.com/maciekb2/task-manager/proto"
 
+	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc"
 )
 
@@ -59,8 +60,11 @@ func sendTaskWithNumbers(client pb.TaskManagerClient, description string, priori
 		Number2:         int32(number2),
 	})
 	if err != nil {
+		tasksFailed.Add(taskCtx, 1, attribute.String("stage", "submit"))
 		log.Fatalf("could not submit task: %v", err)
 	}
+
+	tasksSent.Add(taskCtx, 1, attribute.String("priority", priority.String()))
 
 	log.Printf("Zadanie zostało wysłane z ID: %s", res.TaskId)
 	streamTaskStatus(client, res.TaskId)
