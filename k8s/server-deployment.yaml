@@ -1,9 +1,11 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: taskmanager-server
+  name: taskmanager-server-deployment
+  labels:
+    app: taskmanager-server
 spec:
-  replicas: 2
+  replicas: 2 # Początkowa liczba replik
   selector:
     matchLabels:
       app: taskmanager-server
@@ -13,20 +15,38 @@ spec:
         app: taskmanager-server
     spec:
       containers:
-      - name: server
-        image: taskmanager-server:latest
-        ports:
-        - containerPort: 50051
+        - name: taskmanager-server
+          image: maciekb2/task-manager-server:latest
+          ports:
+            - containerPort: 50051
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 5
+            periodSeconds: 10
 ---
-apiVersion: v1
-kind: Service
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
 metadata:
-  name: taskmanager-service
+  name: taskmanager-server-hpa
 spec:
-  type: ClusterIP
-  selector:
-    app: taskmanager-server
-  ports:
-  - protocol: TCP
-    port: 50051
-    targetPort: 50051
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: taskmanager-server-deployment
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50

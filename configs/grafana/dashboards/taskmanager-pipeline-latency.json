@@ -1,0 +1,160 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "graphTooltip": 0,
+  "id": null,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, span_name) (rate({__name__=~\"spanmetrics_latency_bucket|traces_spanmetrics_latency_bucket\",service_name=~\"$service\"}[5m])))",
+          "refId": "A"
+        }
+      ],
+      "title": "P95 Latency by Span (5m)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (span_name) (rate({__name__=~\"spanmetrics_calls_total|traces_spanmetrics_calls_total\",service_name=~\"$service\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Throughput by Span (5m)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "sum by (span_name) (rate({__name__=~\"spanmetrics_latency_sum|traces_spanmetrics_latency_sum\",service_name=~\"$service\",span_name=~\"ingest\\\\.process|scheduler\\\\.schedule|worker\\\\.process\"}[5m])) / sum by (span_name) (rate({__name__=~\"spanmetrics_latency_count|traces_spanmetrics_latency_count\",service_name=~\"$service\",span_name=~\"ingest\\\\.process|scheduler\\\\.schedule|worker\\\\.process\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Avg Stage Latency (ingest/scheduler/worker)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum(rate({__name__=~\"spanmetrics_calls_total|traces_spanmetrics_calls_total\",service_name=~\"$service\",status_code=\"STATUS_CODE_ERROR\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Error Calls/s (5m)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum(rate({__name__=~\"spanmetrics_calls_total|traces_spanmetrics_calls_total\",service_name=~\"$service\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Calls/s (5m)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum(sum by (span_name) (rate({__name__=~\"spanmetrics_latency_sum|traces_spanmetrics_latency_sum\",service_name=~\"$service\",span_name=~\"ingest\\\\.process|scheduler\\\\.schedule|worker\\\\.process\"}[5m])) / sum by (span_name) (rate({__name__=~\"spanmetrics_latency_count|traces_spanmetrics_latency_count\",service_name=~\"$service\",span_name=~\"ingest\\\\.process|scheduler\\\\.schedule|worker\\\\.process\"}[5m])))",
+          "refId": "A"
+        }
+      ],
+      "title": "Approx End-to-End Avg (5m)",
+      "type": "stat"
+    }
+  ],
+  "schemaVersion": 39,
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "label": "Service",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values({__name__=~\"spanmetrics_latency_count|traces_spanmetrics_latency_count\"}, service_name)",
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        }
+      }
+    ]
+  },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "title": "Task Manager Pipeline Latency",
+  "uid": "taskmanager-pipeline-latency",
+  "version": 2
+}

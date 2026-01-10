@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: taskmanager
+    orgId: 1
+    folder: Task Manager
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/dashboards

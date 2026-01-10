@@ -14,4 +14,4 @@ spec:
     spec:
       containers:
       - name: client
-        image: taskmanager-client:latest
+        image: maciekb2/task-manager-client:latest

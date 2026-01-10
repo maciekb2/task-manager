@@ -1,0 +1,153 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  namespace: default
+  labels:
+    app: tempo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tempo
+  template:
+    metadata:
+      labels:
+        app: tempo
+    spec:
+      containers:
+      - name: tempo
+        image: grafana/tempo:2.3.0 # Zmien na najnowsza wersje
+        ports:
+        - containerPort: 3200 # HTTP
+        - containerPort: 4317 # OTLP gRPC
+        - containerPort: 4318 # OTLP HTTP
+        - containerPort: 9095 # gRPC
+        args:
+        - "-config.file=/etc/tempo/tempo.yaml"
+        - "-target=all-in-one"
+        resources:
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+        volumeMounts:
+        - name: tempo-config
+          mountPath: /etc/tempo
+      volumes:
+      - name: tempo-config
+        configMap:
+          name: tempo-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+  namespace: default
+data:
+  tempo.yaml: |
+    server:
+      http_listen_port: 3200
+      grpc_listen_port: 9095
+      logs:
+        level: info
+
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /tmp/tempo/traces
+    
+    traces:
+      # Ustawienie częstotliwości próbkowania na 1.0 powoduje próbkowanie wszystkich danych.
+      # Domyślne ustawienie to 0.1, czyli 10%.
+      sample_rate: 1.0
+
+      # Konfiguracja OTLP
+      otlp:
+        # Adresy na jakich nasłuchują gRPC i HTTP
+        grpc_address: 0.0.0.0:4317
+        http_address: 0.0.0.0:4318
+
+        # Ustawienia dla odbiorników
+        receivers:
+          # Konfiguracja odbiornika gRPC
+          otlp/grpc:
+            endpoint: 0.0.0.0:4317
+
+          # Konfiguracja odbiornika HTTP
+          otlp/http:
+            endpoint: 0.0.0.0:4318
+
+      # Konfiguracja procesorów
+      processors:
+        # Przykładowy procesor dodający atrybut do zakresu
+        - name: add-attribute
+          attributes:
+            actions:
+              - key: environment
+                value: development
+                action: insert
+
+      # Konfiguracja eksporterów
+      exporters:
+        # Przykładowy eksporter wypisujący dane do logów
+        - name: logging
+          logging: {}
+
+      # Konfiguracja pamięci podręcznej
+      # Ustawienia domyślne, można dostosować według potrzeb
+      cache:
+        # Liczba wpisów w pamięci podręcznej
+        size: 10000
+        # Czas życia wpisu w pamięci podręcznej (w sekundach)
+        ttl: 60
+
+    metrics:
+      # Ustawienie częstotliwości generowania metryk na 15 sekund
+      # Domyślne ustawienie to 15 sekund
+      interval: 15s
+
+      # Konfiguracja eksporterów metryk
+      exporters:
+        # Przykładowy eksporter wysyłający metryki do Prometheusa
+        - name: prometheus
+          prometheus:
+            # Adres i port, na którym ma nasłuchiwać Prometheus
+            endpoint: 0.0.0.0:9095
+
+            # Ustawienia dla zdalnego zapisu do Prometheusa
+            remote_write:
+              # URL do endpointu zdalnego zapisu Prometheusa
+              url: http://prometheus:9090/api/v1/write
+              # Podstawowe uwierzytelnianie HTTP
+              basic_auth:
+                username: your_username
+                password: your_password
+
+              # Ustawienia TLS
+              tls_config:
+                # Określa, czy należy pomijać weryfikację certyfikatu serwera
+                insecure_skip_verify: true
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  namespace: default
+spec:
+  selector:
+    app: tempo
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+    - name: http
+      port: 3200
+      targetPort: 3200

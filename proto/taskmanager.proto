@@ -1,27 +1,62 @@
+// Package proto defines the gRPC service and message definitions
+// for the Task Manager application.
+
 syntax = "proto3";
+  
+  package proto;
+  
+  option go_package = "github.com/maciekb2/task-manager/proto";
+  
+  // TaskManager service provides methods to submit tasks and stream task status.
+  service TaskManager {
+    // SubmitTask submits a new task with the given details.
+    rpc SubmitTask (TaskRequest) returns (TaskResponse);
+  
+    // StreamTaskStatus streams the status of a task based on the task ID.
+    rpc StreamTaskStatus (StatusRequest) returns (stream StatusResponse);
+  }
+  
+  // TaskRequest represents a request to submit a new task.
+  message TaskRequest {
+    // task_description is a brief description of the task.
+    string task_description = 1;
+  
+    // priority indicates the priority level of the task.
+    TaskPriority priority = 2;
+  
+    // number1 is the first number associated with the task.
+    int32 number1 = 3;
+  
+    // number2 is the second number associated with the task.
+    int32 number2 = 4;
+  }
+  
+  // TaskResponse represents a response after submitting a task.
+  message TaskResponse {
+    // task_id is the unique identifier of the submitted task.
+    string task_id = 1;
+  }
+  
+  // StatusRequest represents a request to get the status of a task.
+  message StatusRequest {
+    // task_id is the unique identifier of the task whose status is being requested.
+    string task_id = 1;
+  }
+  
+  // StatusResponse represents the status of a task.
+  message StatusResponse {
+    // status is the current status of the task.
+    string status = 1;
+  }
 
-package taskmanager;
+// TaskPriority represents the priority level of a task.
+enum TaskPriority {
+  // LOW indicates a low priority task.
+  LOW = 0;
 
-option go_package = "/proto;proto";
+  // MEDIUM indicates a medium priority task.
+  MEDIUM = 1;
 
-
-service TaskManager {
-  rpc SubmitTask (TaskRequest) returns (TaskResponse);
-  rpc CheckTaskStatus (StatusRequest) returns (StatusResponse);
-}
-
-message TaskRequest {
-  string task_description = 1;
-}
-
-message TaskResponse {
-  string task_id = 1;
-}
-
-message StatusRequest {
-  string task_id = 1;
-}
-
-message StatusResponse {
-  string status = 1;
+  // HIGH indicates a high priority task.
+  HIGH = 2;
 }

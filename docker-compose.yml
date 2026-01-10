@@ -1,0 +1,262 @@
+version: "3.9"
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.93.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    restart: unless-stopped
+    volumes:
+      - ./configs/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    networks:
+      - taskmanager-net
+
+  prometheus:
+    image: prom/prometheus:v2.49.1
+    command: ["--config.file=/etc/prometheus/prometheus.yaml"]
+    restart: unless-stopped
+    volumes:
+      - ./configs/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
+    networks:
+      - taskmanager-net
+
+  tempo:
+    image: grafana/tempo:2.3.0
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    restart: unless-stopped
+    volumes:
+      - ./configs/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - taskmanager-net
+
+  loki:
+    image: grafana/loki:2.9.4
+    command: ["-config.file=/etc/loki/loki-config.yaml"]
+    hostname: loki
+    restart: unless-stopped
+    user: "0:0"
+    volumes:
+      - ./configs/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki-data:/var/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - taskmanager-net
+
+  promtail:
+    image: grafana/promtail:2.9.4
+    command: ["-config.file=/etc/promtail/promtail-config.yaml"]
+    restart: unless-stopped
+    volumes:
+      - ./configs/promtail-config.yaml:/etc/promtail/promtail-config.yaml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - promtail-positions:/tmp
+    depends_on:
+      - loki
+    networks:
+      - taskmanager-net
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    restart: unless-stopped
+    depends_on:
+      - otel-collector
+      - prometheus
+      - tempo
+      - loki
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./configs/grafana/dashboards:/etc/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - taskmanager-net
+
+  redis-service:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - taskmanager-net
+
+  taskmanager-service:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    environment:
+      - REDIS_ADDR=redis-service:6379
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+    depends_on:
+      - otel-collector
+      - tempo
+      - notifier
+      - redis-service
+    ports:
+      - "50051:50051"
+      - "2222:2222"
+    networks:
+      - taskmanager-net
+
+  taskmanager-client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    restart: unless-stopped
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+    depends_on:
+      - otel-collector
+      - tempo
+      - taskmanager-service
+    ports:
+      - "2223:2223"
+    networks:
+      - taskmanager-net
+
+  ingest:
+    build:
+      context: .
+      dockerfile: ingest/Dockerfile
+    restart: unless-stopped
+    environment:
+      - REDIS_ADDR=redis-service:6379
+      - ENRICHER_URL=http://enricher:8080/enrich
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+    depends_on:
+      - otel-collector
+      - redis-service
+      - enricher
+    networks:
+      - taskmanager-net
+
+  enricher:
+    build:
+      context: .
+      dockerfile: enricher/Dockerfile
+    restart: unless-stopped
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+    depends_on:
+      - otel-collector
+    networks:
+      - taskmanager-net
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: scheduler/Dockerfile
+    restart: unless-stopped
+    environment:
+      - REDIS_ADDR=redis-service:6379
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+    depends_on:
+      - otel-collector
+      - redis-service
+    networks:
+      - taskmanager-net
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      - REDIS_ADDR=redis-service:6379
+      - WORKER_COUNT=4
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+    depends_on:
+      - otel-collector
+      - redis-service
+    networks:
+      - taskmanager-net
+
+  notifier:
+    build:
+      context: .
+      dockerfile: notifier/Dockerfile
+    restart: unless-stopped
+    environment:
+      - REDIS_ADDR=redis-service:6379
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+    depends_on:
+      - otel-collector
+      - redis-service
+    networks:
+      - taskmanager-net
+
+  result-store:
+    build:
+      context: .
+      dockerfile: result-store/Dockerfile
+    restart: unless-stopped
+    environment:
+      - REDIS_ADDR=redis-service:6379
+      - RESULT_STORE_PORT=8082
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+    ports:
+      - "8082:8082"
+    depends_on:
+      - otel-collector
+      - redis-service
+    networks:
+      - taskmanager-net
+
+  audit:
+    build:
+      context: .
+      dockerfile: audit/Dockerfile
+    restart: unless-stopped
+    environment:
+      - REDIS_ADDR=redis-service:6379
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+    depends_on:
+      - otel-collector
+      - redis-service
+    networks:
+      - taskmanager-net
+
+  deadletter:
+    build:
+      context: .
+      dockerfile: deadletter/Dockerfile
+    restart: unless-stopped
+    environment:
+      - REDIS_ADDR=redis-service:6379
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+    depends_on:
+      - otel-collector
+      - redis-service
+    networks:
+      - taskmanager-net
+
+networks:
+  taskmanager-net:
+    name: taskmanager-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  redis-data:
+  tempo-data:
+  loki-data:
+  promtail-positions:
+  grafana-data:
