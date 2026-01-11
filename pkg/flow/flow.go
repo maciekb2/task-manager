@@ -9,8 +9,9 @@ const (
 	QueueResults    = "queue:results"
 	QueueAudit      = "queue:audit"
 	QueueDeadLetter = "queue:deadletter"
-
-	SortedTasks = "tasks"
+	QueueWorkerHigh   = "queue:worker:high"
+	QueueWorkerMedium = "queue:worker:medium"
+	QueueWorkerLow    = "queue:worker:low"
 )
 
 type TaskEnvelope struct {
@@ -59,6 +60,21 @@ type DeadLetter struct {
 
 func StatusChannel(taskID string) string {
 	return "task_status:" + taskID
+}
+
+func WorkerQueueForPriority(priority int32) string {
+	switch priority {
+	case 2:
+		return QueueWorkerHigh
+	case 1:
+		return QueueWorkerMedium
+	default:
+		return QueueWorkerLow
+	}
+}
+
+func WorkerQueuesByPriority() []string {
+	return []string{QueueWorkerHigh, QueueWorkerMedium, QueueWorkerLow}
 }
 
 func Now() string {

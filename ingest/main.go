@@ -11,7 +11,9 @@ import (
 
 	"github.com/go-redis/redis/v8"
 	"github.com/maciekb2/task-manager/pkg/flow"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 )
 
@@ -19,6 +21,8 @@ type enrichResponse struct {
 	Category string `json:"category"`
 	Score    int32  `json:"score"`
 }
+
+var httpClient = &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 
 func main() {
 	ctx := context.Background()
@@ -49,11 +53,19 @@ func main() {
 
 		parentCtx := contextFromTraceParent(task.TraceParent)
 		ctxTask, span := tracer.Start(parentCtx, "ingest.process")
+		span.SetAttributes(
+			attribute.String("task.id", task.TaskID),
+			attribute.Int64("task.priority", int64(task.Priority)),
+			attribute.Int64("task.number1", int64(task.Number1)),
+			attribute.Int64("task.number2", int64(task.Number2)),
+			attribute.String("queue.name", flow.QueueIngest),
+		)
 
 		if strings.TrimSpace(task.TaskDescription) == "" {
+			span.SetAttributes(attribute.String("task.validation", "missing_description"))
 			span.RecordError(errInvalidTask("missing description"))
-			enqueueDeadLetter(ctx, rdb, task, "missing description")
-			enqueueStatus(ctx, rdb, task, "REJECTED", "ingest")
+			enqueueDeadLetter(ctxTask, rdb, task, "missing description")
+			enqueueStatus(ctxTask, rdb, task, "REJECTED", "ingest")
 			span.End()
 			continue
 		}
@@ -64,7 +76,11 @@ func main() {
 			span.RecordError(err)
 		} else {
 			task = enriched
-			enqueueStatus(ctx, rdb, task, "ENRICHED", "ingest")
+			span.SetAttributes(
+				attribute.String("task.category", task.Category),
+				attribute.Int64("task.score", int64(task.Score)),
+			)
+			enqueueStatus(ctxTask, rdb, task, "ENRICHED", "ingest")
 		}
 
 		task.Attempt++
@@ -75,15 +91,15 @@ func main() {
 			continue
 		}
 
-		if err := rdb.RPush(ctx, flow.QueueSchedule, payload).Err(); err != nil {
+		if err := rdb.RPush(ctxTask, flow.QueueSchedule, payload).Err(); err != nil {
 			log.Printf("ingest: enqueue failed: %v", err)
-			enqueueDeadLetter(ctx, rdb, task, "enqueue schedule failed")
+			enqueueDeadLetter(ctxTask, rdb, task, "enqueue schedule failed")
 			span.End()
 			continue
 		}
 
-		enqueueStatus(ctx, rdb, task, "VALIDATED", "ingest")
-		enqueueAudit(ctx, rdb, flow.AuditEvent{
+		enqueueStatus(ctxTask, rdb, task, "VALIDATED", "ingest")
+		enqueueAudit(ctxTask, rdb, flow.AuditEvent{
 			TaskID:      task.TaskID,
 			Event:       "task.validated",
 			Detail:      "Task validated and forwarded",
@@ -107,9 +123,8 @@ func enrichTask(ctx context.Context, task flow.TaskEnvelope) (flow.TaskEnvelope,
 		return task, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return task, err
 	}

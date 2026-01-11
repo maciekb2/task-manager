@@ -1,0 +1,314 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: taskmanager-service
+  labels:
+    app: taskmanager-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: taskmanager-service
+  template:
+    metadata:
+      labels:
+        app: taskmanager-service
+    spec:
+      containers:
+        - name: taskmanager-service
+          image: taskmanager-server:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_ADDR
+              value: redis-service:6379
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: otel-collector:4317
+          ports:
+            - containerPort: 50051
+              name: grpc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: taskmanager-service
+  labels:
+    app: taskmanager-service
+spec:
+  selector:
+    app: taskmanager-service
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: 50051
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: taskmanager-client
+  labels:
+    app: taskmanager-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: taskmanager-client
+  template:
+    metadata:
+      labels:
+        app: taskmanager-client
+    spec:
+      containers:
+        - name: taskmanager-client
+          image: taskmanager-client:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: otel-collector:4317
+            - name: TASKMANAGER_ADDR
+              value: taskmanager-service:50051
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingest
+  labels:
+    app: ingest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ingest
+  template:
+    metadata:
+      labels:
+        app: ingest
+    spec:
+      containers:
+        - name: ingest
+          image: taskmanager-ingest:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_ADDR
+              value: redis-service:6379
+            - name: ENRICHER_URL
+              value: http://enricher:8080/enrich
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: otel-collector:4317
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enricher
+  labels:
+    app: enricher
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: enricher
+  template:
+    metadata:
+      labels:
+        app: enricher
+    spec:
+      containers:
+        - name: enricher
+          image: taskmanager-enricher:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: otel-collector:4317
+          ports:
+            - containerPort: 8080
+              name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: enricher
+  labels:
+    app: enricher
+spec:
+  selector:
+    app: enricher
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduler
+  labels:
+    app: scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scheduler
+  template:
+    metadata:
+      labels:
+        app: scheduler
+    spec:
+      containers:
+        - name: scheduler
+          image: taskmanager-scheduler:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_ADDR
+              value: redis-service:6379
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: otel-collector:4317
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  labels:
+    app: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      containers:
+        - name: worker
+          image: taskmanager-worker:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_ADDR
+              value: redis-service:6379
+            - name: WORKER_COUNT
+              value: "4"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: otel-collector:4317
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notifier
+  labels:
+    app: notifier
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notifier
+  template:
+    metadata:
+      labels:
+        app: notifier
+    spec:
+      containers:
+        - name: notifier
+          image: taskmanager-notifier:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_ADDR
+              value: redis-service:6379
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: otel-collector:4317
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: result-store
+  labels:
+    app: result-store
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: result-store
+  template:
+    metadata:
+      labels:
+        app: result-store
+    spec:
+      containers:
+        - name: result-store
+          image: taskmanager-result-store:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_ADDR
+              value: redis-service:6379
+            - name: RESULT_STORE_PORT
+              value: "8082"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: otel-collector:4317
+          ports:
+            - containerPort: 8082
+              name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: result-store
+  labels:
+    app: result-store
+spec:
+  selector:
+    app: result-store
+  ports:
+    - name: http
+      port: 8082
+      targetPort: 8082
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit
+  labels:
+    app: audit
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: audit
+  template:
+    metadata:
+      labels:
+        app: audit
+    spec:
+      containers:
+        - name: audit
+          image: taskmanager-audit:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_ADDR
+              value: redis-service:6379
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: otel-collector:4317
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deadletter
+  labels:
+    app: deadletter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: deadletter
+  template:
+    metadata:
+      labels:
+        app: deadletter
+    spec:
+      containers:
+        - name: deadletter
+          image: taskmanager-deadletter:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_ADDR
+              value: redis-service:6379
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: otel-collector:4317

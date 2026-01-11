@@ -19,7 +19,7 @@
       },
       "targets": [
         {
-          "query": "{}",
+          "query": "{resource.service.name=~\".+\"}",
           "queryType": "traceql",
           "refId": "A",
           "limit": 20

@@ -11,6 +11,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/maciekb2/task-manager/pkg/flow"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 )
 
@@ -44,9 +45,16 @@ func main() {
 
 		parentCtx := contextFromTraceParent(result.Task.TraceParent)
 		ctxTask, span := tracer.Start(parentCtx, "result-store.persist")
+		span.SetAttributes(
+			attribute.String("task.id", result.Task.TaskID),
+			attribute.Int("worker.id", result.WorkerID),
+			attribute.Int64("task.result", int64(result.Result)),
+			attribute.String("queue.source", flow.QueueResults),
+		)
 
 		key := "task_result:" + result.Task.TaskID
-		if err := rdb.HSet(ctx, key, map[string]interface{}{
+		span.SetAttributes(attribute.String("redis.key", key))
+		if err := rdb.HSet(ctxTask, key, map[string]interface{}{
 			"result":       result.Result,
 			"processed_at": result.ProcessedAt,
 			"worker_id":    result.WorkerID,
@@ -58,7 +66,7 @@ func main() {
 			continue
 		}
 
-		enqueueAudit(ctx, rdb, flow.AuditEvent{
+		enqueueAudit(ctxTask, rdb, flow.AuditEvent{
 			TaskID:      result.Task.TaskID,
 			Event:       "task.stored",
 			Detail:      "Result persisted",
@@ -68,7 +76,6 @@ func main() {
 		})
 
 		span.End()
-		_ = ctxTask
 	}
 }
 

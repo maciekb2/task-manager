@@ -7,8 +7,9 @@ import (
 	"net/http"
 	"os"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type enrichRequest struct {
@@ -32,7 +33,7 @@ func main() {
 	defer shutdown(ctx)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/enrich", handleEnrich)
+	mux.Handle("/enrich", otelhttp.NewHandler(http.HandlerFunc(handleEnrich), "enricher.http"))
 
 	addr := ":" + port()
 	log.Printf("enricher listening on %s", addr)
@@ -42,9 +43,8 @@ func main() {
 }
 
 func handleEnrich(w http.ResponseWriter, r *http.Request) {
-	ctx := otel.GetTextMapPropagator().Extract(context.Background(), propagation.HeaderCarrier(r.Header))
 	tracer := otel.Tracer("enricher")
-	ctx, span := tracer.Start(ctx, "enricher.handle")
+	ctx, span := tracer.Start(r.Context(), "enricher.handle")
 	defer span.End()
 
 	if r.Method != http.MethodPost {
@@ -57,6 +57,11 @@ func handleEnrich(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+	span.SetAttributes(
+		attribute.Int64("task.priority", int64(req.Priority)),
+		attribute.Int64("task.number1", int64(req.Number1)),
+		attribute.Int64("task.number2", int64(req.Number2)),
+	)
 
 	category := "low"
 	if req.Priority >= 2 {
@@ -67,6 +72,10 @@ func handleEnrich(w http.ResponseWriter, r *http.Request) {
 
 	score := req.Number1 + req.Number2 + req.Priority*100
 	resp := enrichResponse{Category: category, Score: score}
+	span.SetAttributes(
+		attribute.String("task.category", category),
+		attribute.Int64("task.score", int64(score)),
+	)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {

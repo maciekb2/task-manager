@@ -9,6 +9,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/maciekb2/task-manager/pkg/flow"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 )
 
@@ -41,6 +42,13 @@ func main() {
 
 		parentCtx := contextFromTraceParent(task.TraceParent)
 		ctxTask, span := tracer.Start(parentCtx, "scheduler.schedule")
+		queueName := flow.WorkerQueueForPriority(task.Priority)
+		span.SetAttributes(
+			attribute.String("task.id", task.TaskID),
+			attribute.Int64("task.priority", int64(task.Priority)),
+			attribute.String("queue.source", flow.QueueSchedule),
+			attribute.String("queue.target", queueName),
+		)
 
 		payload, err := json.Marshal(task)
 		if err != nil {
@@ -49,18 +57,15 @@ func main() {
 			continue
 		}
 
-		if err := rdb.ZAdd(ctx, flow.SortedTasks, &redis.Z{
-			Score:  float64(task.Priority),
-			Member: string(payload),
-		}).Err(); err != nil {
+		if err := rdb.RPush(ctxTask, queueName, payload).Err(); err != nil {
 			log.Printf("scheduler: enqueue failed: %v", err)
-			enqueueDeadLetter(ctx, rdb, task, "enqueue worker queue failed")
+			enqueueDeadLetter(ctxTask, rdb, task, "enqueue worker queue failed")
 			span.End()
 			continue
 		}
 
-		enqueueStatus(ctx, rdb, task, "SCHEDULED", "scheduler")
-		enqueueAudit(ctx, rdb, flow.AuditEvent{
+		enqueueStatus(ctxTask, rdb, task, "SCHEDULED", "scheduler")
+		enqueueAudit(ctxTask, rdb, flow.AuditEvent{
 			TaskID:      task.TaskID,
 			Event:       "task.scheduled",
 			Detail:      "Task added to priority queue",
@@ -70,7 +75,6 @@ func main() {
 		})
 
 		span.End()
-		_ = ctxTask
 	}
 }
 

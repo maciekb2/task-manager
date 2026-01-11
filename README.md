@@ -13,7 +13,7 @@ The Asynchronous Task Manager is a Dockerized application designed to manage and
 
 ## Prerequisites
 - Docker
-- Kubernetes
+- Kubernetes (optional)
 
 ## Installation
 1. Clone the repository:
@@ -24,9 +24,10 @@ The Asynchronous Task Manager is a Dockerized application designed to manage and
     ```sh
     cd asynchronous-task-manager
     ```
-3. Deploy the application to Kubernetes:
+3. Deploy the application to Kubernetes (optional):
     ```sh
-    kubectl apply -f k8s/
+    make build
+    kubectl apply -k k8s
     ```
 
 ## Usage

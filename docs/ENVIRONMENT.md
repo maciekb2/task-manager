@@ -18,7 +18,7 @@ This document explains how the **Asynchronous Task Manager** repository is struc
 - **proto** – Protocol Buffer definitions and generated Go stubs.
 - **configs** – Loki, Promtail, Tempo, and OpenTelemetry Collector configs plus Grafana provisioning.
 - **docker-compose.yml** – Local development stack (all services + observability).
-- **k8s** – Kubernetes manifests (legacy stack; may need updates for the extended pipeline).
+- **k8s** – Kubernetes manifests aligned with the docker-compose stack (use kustomize).
 - **docs** – Project documentation (this directory).
 
 ## Pipeline Flow
@@ -26,7 +26,7 @@ This document explains how the **Asynchronous Task Manager** repository is struc
 1. **client → server (gRPC)** – `SubmitTask` accepts a task and stores metadata.
 2. **server → Redis (queue:ingest)** – Task payload is queued for ingestion.
 3. **ingest → enricher (HTTP)** – Task is enriched and forwarded to **queue:schedule**.
-4. **scheduler → Redis (sorted set tasks)** – Task is scheduled by priority.
+4. **scheduler → Redis (priority queues)** – Task is routed to `queue:worker:*` by priority.
 5. **worker → Redis (queue:results)** – Worker processes the task and emits a result.
 6. **result-store → Redis (task_result:<id>)** – Result is persisted.
 7. **status updates → notifier → Redis pubsub** – Status updates are published to `task_status:<id>`.
@@ -38,7 +38,7 @@ Trace context is propagated via a `traceparent` field inside the task payload be
 ## Redis Keys and Queues
 
 - `queue:ingest`, `queue:schedule`, `queue:results`, `queue:status`, `queue:audit`, `queue:deadletter`
-- `tasks` (sorted set for priority scheduling)
+- `queue:worker:high`, `queue:worker:medium`, `queue:worker:low`
 - `task:<id>` (task metadata)
 - `task_status:<id>` (status hash + pubsub channel)
 - `task_result:<id>` (results)
@@ -62,4 +62,10 @@ Useful endpoints:
 
 ## Kubernetes Deployment
 
-The `k8s/` directory contains manifests for the legacy stack (gateway/client/Redis + observability). If you want the extended pipeline on Kubernetes, the manifests will need to be updated accordingly.
+The `k8s/` directory now mirrors the docker-compose stack (gateway, pipeline services, and observability). Apply with:
+
+```sh
+kubectl apply -k k8s
+```
+
+The manifests assume locally built images (tagged `*:local`) and use `imagePullPolicy: IfNotPresent`.

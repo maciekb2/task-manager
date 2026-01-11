@@ -16,7 +16,9 @@ import (
 	"github.com/maciekb2/task-manager/pkg/flow"
 	pb "github.com/maciekb2/task-manager/proto"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 
 	"google.golang.org/grpc"
 )
@@ -39,6 +41,16 @@ func newServer() *server {
 func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskResponse, error) {
 	taskID := fmt.Sprintf("%d", rand.Int())
 	traceParent := traceparentFromContext(ctx)
+	if span := trace.SpanFromContext(ctx); span != nil {
+		span.SetAttributes(
+			attribute.String("task.id", taskID),
+			attribute.String("task.description", req.TaskDescription),
+			attribute.Int("task.priority", int(req.Priority)),
+			attribute.Int64("task.number1", int64(req.Number1)),
+			attribute.Int64("task.number2", int64(req.Number2)),
+			attribute.String("queue.name", flow.QueueIngest),
+		)
+	}
 	newTask := flow.TaskEnvelope{
 		TaskID:          taskID,
 		TaskDescription: req.TaskDescription,
@@ -98,6 +110,12 @@ func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskR
 func (s *server) StreamTaskStatus(req *pb.StatusRequest, stream pb.TaskManager_StreamTaskStatusServer) error {
 	ctx := stream.Context()
 	statusKey := flow.StatusChannel(req.TaskId)
+	if span := trace.SpanFromContext(ctx); span != nil {
+		span.SetAttributes(
+			attribute.String("task.id", req.TaskId),
+			attribute.String("channel.name", statusKey),
+		)
+	}
 
 	if status, err := s.rdb.HGet(ctx, statusKey, "status").Result(); err == nil {
 		if err := stream.Send(&pb.StatusResponse{Status: status}); err != nil {

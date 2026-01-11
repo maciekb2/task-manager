@@ -12,6 +12,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/maciekb2/task-manager/pkg/flow"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 )
 
@@ -37,24 +38,21 @@ func main() {
 
 func processLoop(ctx context.Context, rdb *redis.Client, workerID int) {
 	tracer := otel.Tracer("worker")
+	queues := flow.WorkerQueuesByPriority()
 	for {
-		tasks, err := rdb.ZPopMax(ctx, flow.SortedTasks, 1).Result()
+		tasks, err := rdb.BLPop(ctx, 0, queues...).Result()
 		if err != nil {
-			log.Printf("worker %d: ZPOPMAX failed: %v", workerID, err)
+			log.Printf("worker %d: BLPOP failed: %v", workerID, err)
 			time.Sleep(1 * time.Second)
 			continue
 		}
 
-		if len(tasks) == 0 {
-			time.Sleep(500 * time.Millisecond)
+		if len(tasks) < 2 {
 			continue
 		}
 
-		payload, ok := tasks[0].Member.(string)
-		if !ok {
-			log.Printf("worker %d: unexpected payload type", workerID)
-			continue
-		}
+		queueName := tasks[0]
+		payload := tasks[1]
 
 		var task flow.TaskEnvelope
 		if err := json.Unmarshal([]byte(payload), &task); err != nil {
@@ -64,9 +62,17 @@ func processLoop(ctx context.Context, rdb *redis.Client, workerID int) {
 
 		parentCtx := contextFromTraceParent(task.TraceParent)
 		ctxTask, span := tracer.Start(parentCtx, "worker.process")
+		start := time.Now()
+		span.SetAttributes(
+			attribute.String("task.id", task.TaskID),
+			attribute.Int64("task.priority", int64(task.Priority)),
+			attribute.Int("worker.id", workerID),
+			attribute.String("queue.source", queueName),
+			attribute.String("queue.target", flow.QueueResults),
+		)
 
-		enqueueStatus(ctx, rdb, task, "IN_PROGRESS", "worker")
-		enqueueAudit(ctx, rdb, flow.AuditEvent{
+		enqueueStatus(ctxTask, rdb, task, "IN_PROGRESS", "worker")
+		enqueueAudit(ctxTask, rdb, flow.AuditEvent{
 			TaskID:      task.TaskID,
 			Event:       "task.started",
 			Detail:      "Worker picked task",
@@ -75,13 +81,21 @@ func processLoop(ctx context.Context, rdb *redis.Client, workerID int) {
 			Timestamp:   flow.Now(),
 		})
 
-		processDuration := time.Duration(2+rand.Intn(3)) * time.Second
-		time.Sleep(processDuration)
+		checksum, iterations := simulateWork(task.Number1, task.Number2, task.Priority)
+		ioDelay := time.Duration(200+rand.Intn(400)) * time.Millisecond
+		time.Sleep(ioDelay)
+		span.SetAttributes(
+			attribute.Int("task.work.iterations", iterations),
+			attribute.Int64("task.work.checksum", checksum),
+			attribute.Float64("task.processing_seconds", time.Since(start).Seconds()),
+			attribute.Float64("task.simulated_io_ms", float64(ioDelay.Milliseconds())),
+		)
 
 		if rand.Float32() < 0.2 {
 			log.Printf("worker %d: task %s failed", workerID, task.TaskID)
-			enqueueStatus(ctx, rdb, task, "FAILED", "worker")
-			enqueueDeadLetter(ctx, rdb, task, "processing failed")
+			span.SetAttributes(attribute.String("task.outcome", "failed"))
+			enqueueStatus(ctxTask, rdb, task, "FAILED", "worker")
+			enqueueDeadLetter(ctxTask, rdb, task, "processing failed")
 			span.End()
 			continue
 		}
@@ -101,15 +115,19 @@ func processLoop(ctx context.Context, rdb *redis.Client, workerID int) {
 			continue
 		}
 
-		if err := rdb.RPush(ctx, flow.QueueResults, encoded).Err(); err != nil {
+		if err := rdb.RPush(ctxTask, flow.QueueResults, encoded).Err(); err != nil {
 			log.Printf("worker %d: enqueue results failed: %v", workerID, err)
-			enqueueDeadLetter(ctx, rdb, task, "enqueue results failed")
+			enqueueDeadLetter(ctxTask, rdb, task, "enqueue results failed")
 			span.End()
 			continue
 		}
 
-		enqueueStatus(ctx, rdb, task, "COMPLETED", "worker")
-		enqueueAudit(ctx, rdb, flow.AuditEvent{
+		span.SetAttributes(
+			attribute.String("task.outcome", "completed"),
+			attribute.Int64("task.result", int64(result)),
+		)
+		enqueueStatus(ctxTask, rdb, task, "COMPLETED", "worker")
+		enqueueAudit(ctxTask, rdb, flow.AuditEvent{
 			TaskID:      task.TaskID,
 			Event:       "task.completed",
 			Detail:      "Worker finished task",
@@ -119,7 +137,6 @@ func processLoop(ctx context.Context, rdb *redis.Client, workerID int) {
 		})
 
 		span.End()
-		_ = ctxTask
 	}
 }
 
@@ -193,4 +210,16 @@ func redisAddr() string {
 		return addr
 	}
 	return "redis-service:6379"
+}
+
+func simulateWork(number1, number2 int32, priority int32) (int64, int) {
+	base := int(number1+number2) % 5000
+	iterations := 5000 + base + int(priority)*1000
+	var hash uint64 = 1469598103934665603
+	for i := 0; i < iterations; i++ {
+		hash ^= uint64(number1) + uint64(number2) + uint64(i)
+		hash *= 1099511628211
+		hash ^= hash >> 32
+	}
+	return int64(hash & 0x7fffffffffffffff), iterations
 }

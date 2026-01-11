@@ -1,16 +1,19 @@
-# Zmienna z nazwą użytkownika Docker Hub
-DOCKER_USER = maciekb2
+IMAGE_TAG ?= local
 
-# Nazwy obrazów
-SERVER_IMAGE = $(DOCKER_USER)/task-manager-server
-CLIENT_IMAGE = $(DOCKER_USER)/task-manager-client
+SERVER_IMAGE = taskmanager-server
+CLIENT_IMAGE = taskmanager-client
+INGEST_IMAGE = taskmanager-ingest
+ENRICHER_IMAGE = taskmanager-enricher
+SCHEDULER_IMAGE = taskmanager-scheduler
+WORKER_IMAGE = taskmanager-worker
+NOTIFIER_IMAGE = taskmanager-notifier
+RESULT_STORE_IMAGE = taskmanager-result-store
+AUDIT_IMAGE = taskmanager-audit
+DEADLETTER_IMAGE = taskmanager-deadletter
 
-# Tagowanie wersji obrazów
-TAG = latest
+.PHONY: all build build-server build-client build-ingest build-enricher build-scheduler build-worker \
+	build-notifier build-result-store build-audit build-deadletter protoc k8s-apply k8s-delete
 
-.PHONY: all build push deploy protoc
-
-# Generowanie plików Protobuf
 protoc:
 	protoc --go_out=. \
 	    --go_opt=paths=source_relative \
@@ -18,41 +21,43 @@ protoc:
 	    --go-grpc_opt=paths=source_relative \
 	    proto/taskmanager.proto
 
-# Komenda do zbudowania wszystkich obrazów
-build: protoc build-server build-client
+build: protoc build-server build-client build-ingest build-enricher build-scheduler build-worker \
+	build-notifier build-result-store build-audit build-deadletter
 
 build-server:
-	@echo "Budowanie obrazu serwera..."
-	docker build -f server/Dockerfile -t $(SERVER_IMAGE):$(TAG) .
+	docker build -f server/Dockerfile -t $(SERVER_IMAGE):$(IMAGE_TAG) .
 
 build-client:
-	@echo "Budowanie obrazu klienta..."
-	docker build -f client/Dockerfile -t $(CLIENT_IMAGE):$(TAG) .
+	docker build -f client/Dockerfile -t $(CLIENT_IMAGE):$(IMAGE_TAG) .
 
-# Komenda do pushowania obrazów na Docker Hub
-push: push-server push-client
+build-ingest:
+	docker build -f ingest/Dockerfile -t $(INGEST_IMAGE):$(IMAGE_TAG) .
 
-push-server:
-	@echo "Przesyłanie obrazu serwera na Docker Hub..."
-	docker push $(SERVER_IMAGE):$(TAG)
+build-enricher:
+	docker build -f enricher/Dockerfile -t $(ENRICHER_IMAGE):$(IMAGE_TAG) .
 
-push-client:
-	@echo "Przesyłanie obrazu klienta na Docker Hub..."
-	docker push $(CLIENT_IMAGE):$(TAG)
+build-scheduler:
+	docker build -f scheduler/Dockerfile -t $(SCHEDULER_IMAGE):$(IMAGE_TAG) .
 
-# Komenda do wdrożenia aplikacji na Kubernetes
-deploy: deploy-server deploy-client
+build-worker:
+	docker build -f worker/Dockerfile -t $(WORKER_IMAGE):$(IMAGE_TAG) .
 
-deploy-server:
-	@echo "Tworzenie deploymentu serwera..."
-	kubectl apply -f k8s/server-deployment.yaml
-	kubectl rollout restart deployment/taskmanager-server
+build-notifier:
+	docker build -f notifier/Dockerfile -t $(NOTIFIER_IMAGE):$(IMAGE_TAG) .
 
-deploy-client:
-	@echo "Tworzenie deploymentu klienta..."
-	kubectl apply -f k8s/client-deployment.yaml
-	kubectl rollout restart deployment/taskmanager-client
+build-result-store:
+	docker build -f result-store/Dockerfile -t $(RESULT_STORE_IMAGE):$(IMAGE_TAG) .
 
-# Komenda do zbudowania, przesłania obrazów i wdrożenia aplikacji
-all: build push deploy
-	@echo "Wszystkie kroki zakończone sukcesem!"
+build-audit:
+	docker build -f audit/Dockerfile -t $(AUDIT_IMAGE):$(IMAGE_TAG) .
+
+build-deadletter:
+	docker build -f deadletter/Dockerfile -t $(DEADLETTER_IMAGE):$(IMAGE_TAG) .
+
+k8s-apply:
+	kubectl apply -k k8s
+
+k8s-delete:
+	kubectl delete -k k8s
+
+all: build k8s-apply

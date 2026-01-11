@@ -10,6 +10,8 @@ import (
 	"time"
 
 	pb "github.com/maciekb2/task-manager/proto"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 
 	"google.golang.org/grpc"
 )
@@ -60,8 +62,18 @@ func connectToServer(ctx context.Context) *grpc.ClientConn {
 }
 
 func sendTaskWithNumbers(client pb.TaskManagerClient, description string, priority pb.TaskPriority, number1 int, number2 int) {
-	taskCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	tracer := otel.Tracer("client")
+	ctx, span := tracer.Start(context.Background(), "client.submit")
+	span.SetAttributes(
+		attribute.String("task.description", description),
+		attribute.Int("task.priority", int(priority)),
+		attribute.Int("task.number1", number1),
+		attribute.Int("task.number2", number2),
+	)
+
+	taskCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	defer span.End()
 
 	log.Printf("Wysyłanie zadania: %s z priorytetem: %s oraz liczbami: %d, %d", description, priority, number1, number2)
 
@@ -72,6 +84,7 @@ func sendTaskWithNumbers(client pb.TaskManagerClient, description string, priori
 		Number2:         int32(number2),
 	})
 	if err != nil {
+		span.RecordError(err)
 		log.Printf("could not submit task: %v", err)
 		return
 	}
