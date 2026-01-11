@@ -1,0 +1,134 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "graphTooltip": 0,
+  "id": null,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(taskmanager_task_e2e_seconds_bucket{task_priority=~\"$priority\"}[5m])))",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(taskmanager_task_e2e_seconds_bucket{task_priority=~\"$priority\"}[5m])))",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(taskmanager_task_e2e_seconds_bucket{task_priority=~\"$priority\"}[5m])))",
+          "refId": "C"
+        }
+      ],
+      "title": "End-to-End Latency (p50/p95/p99)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "100 * sum(rate(taskmanager_task_e2e_seconds_bucket{le=\"$slo_seconds\",task_priority=~\"$priority\"}[5m])) / sum(rate(taskmanager_task_e2e_seconds_bucket{le=\"+Inf\",task_priority=~\"$priority\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "SLO Compliance (<= $slo_seconds s)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(taskmanager_task_e2e_seconds_bucket{le=\"+Inf\",task_priority=~\"$priority\"}[1m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Completed Tasks/s",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, task_priority) (rate(taskmanager_task_e2e_seconds_bucket[5m])))",
+          "refId": "A"
+        }
+      ],
+      "title": "p95 Latency by Priority",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 39,
+  "templating": {
+    "list": [
+      {
+        "name": "priority",
+        "type": "custom",
+        "label": "Priority",
+        "query": "0,1,2",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
+        "includeAll": true,
+        "allValue": ".*"
+      },
+      {
+        "name": "slo_seconds",
+        "type": "custom",
+        "label": "SLO Threshold (s)",
+        "query": "1,2,5,10",
+        "current": {
+          "selected": true,
+          "text": "5",
+          "value": "5"
+        }
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "title": "Task Manager End-to-End SLO",
+  "uid": "taskmanager-end-to-end-slo",
+  "version": 1
+}

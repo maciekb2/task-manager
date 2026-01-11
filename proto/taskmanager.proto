@@ -29,6 +29,9 @@ syntax = "proto3";
   
     // number2 is the second number associated with the task.
     int32 number2 = 4;
+
+    // idempotency_key provides a stable key for de-duplication.
+    string idempotency_key = 5;
   }
   
   // TaskResponse represents a response after submitting a task.

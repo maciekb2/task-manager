@@ -5,14 +5,16 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"net"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
 	pb "github.com/maciekb2/task-manager/proto"
 	"go.opentelemetry.io/otel"
@@ -26,21 +28,47 @@ import (
 type server struct {
 	pb.UnimplementedTaskManagerServer
 	rdb *redis.Client
+	bus *bus.Client
 }
 
-func newServer() *server {
-	rdb := redis.NewClient(&redis.Options{
-		Addr: redisAddr(),
-	})
-
+func newServer(rdb *redis.Client, busClient *bus.Client) *server {
 	return &server{
 		rdb: rdb,
+		bus: busClient,
 	}
 }
 
 func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskResponse, error) {
-	taskID := fmt.Sprintf("%d", rand.Int())
 	traceParent := traceparentFromContext(ctx)
+	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
+	idempotencyRedisKey := ""
+	idempotencyCreated := false
+	taskID := ""
+	if idempotencyKey != "" {
+		idempotencyRedisKey = "idem:" + idempotencyKey
+		taskID = fmt.Sprintf("%d", rand.Int())
+		created, err := s.rdb.SetNX(ctx, idempotencyRedisKey, taskID, 24*time.Hour).Result()
+		if err != nil {
+			return nil, fmt.Errorf("could not store idempotency key: %v", err)
+		}
+		if !created {
+			existingID, err := s.rdb.Get(ctx, idempotencyRedisKey).Result()
+			if err != nil {
+				return nil, fmt.Errorf("could not read idempotency key: %v", err)
+			}
+			if span := trace.SpanFromContext(ctx); span != nil {
+				span.SetAttributes(
+					attribute.String("task.id", existingID),
+					attribute.String("task.idempotency_key", idempotencyKey),
+					attribute.Bool("task.idempotency_hit", true),
+				)
+			}
+			return &pb.TaskResponse{TaskId: existingID}, nil
+		}
+		idempotencyCreated = true
+	} else {
+		taskID = fmt.Sprintf("%d", rand.Int())
+	}
 	if span := trace.SpanFromContext(ctx); span != nil {
 		span.SetAttributes(
 			attribute.String("task.id", taskID),
@@ -48,7 +76,9 @@ func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskR
 			attribute.Int("task.priority", int(req.Priority)),
 			attribute.Int64("task.number1", int64(req.Number1)),
 			attribute.Int64("task.number2", int64(req.Number2)),
-			attribute.String("queue.name", flow.QueueIngest),
+			attribute.String("queue.name", bus.SubjectTaskIngest),
+			attribute.String("task.idempotency_key", idempotencyKey),
+			attribute.Bool("task.idempotency_hit", false),
 		)
 	}
 	newTask := flow.TaskEnvelope{
@@ -71,16 +101,17 @@ func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskR
 		"traceparent": newTask.TraceParent,
 		"status":      "QUEUED",
 	}).Err(); err != nil {
+		if idempotencyCreated {
+			_ = s.rdb.Del(ctx, idempotencyRedisKey).Err()
+		}
 		return nil, fmt.Errorf("could not store task: %v", err)
 	}
 
-	payload, err := json.Marshal(newTask)
-	if err != nil {
-		return nil, fmt.Errorf("could not serialize task: %v", err)
-	}
-
-	if err := s.rdb.RPush(ctx, flow.QueueIngest, payload).Err(); err != nil {
-		return nil, fmt.Errorf("could not enqueue task: %v", err)
+	if _, err := s.bus.PublishJSON(ctx, bus.SubjectTaskIngest, newTask, nil); err != nil {
+		if idempotencyCreated {
+			_ = s.rdb.Del(ctx, idempotencyRedisKey).Err()
+		}
+		return nil, fmt.Errorf("could not publish task: %v", err)
 	}
 
 	if err := s.enqueueStatus(ctx, flow.StatusUpdate{
@@ -154,13 +185,26 @@ func main() {
 	}
 	defer shutdown(ctx)
 
+	rdb := redis.NewClient(&redis.Options{Addr: redisAddr()})
+	busClient, err := bus.Connect(bus.Config{URL: natsURL(), Name: "gateway"})
+	if err != nil {
+		log.Fatalf("nats connect failed: %v", err)
+	}
+	defer busClient.Close()
+	if _, err := busClient.EnsureStream(bus.TasksStreamConfig()); err != nil {
+		log.Fatalf("nats stream setup failed: %v", err)
+	}
+	if _, err := busClient.EnsureStream(bus.EventsStreamConfig()); err != nil {
+		log.Fatalf("nats stream setup failed: %v", err)
+	}
+
 	lis, err := net.Listen("tcp", ":50051")
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
 	grpcServer := grpc.NewServer(serverOpts()...)
-	pb.RegisterTaskManagerServer(grpcServer, newServer())
+	pb.RegisterTaskManagerServer(grpcServer, newServer(rdb, busClient))
 
 	log.Println("Serwer gRPC działa na porcie :50051")
 	if err := grpcServer.Serve(lis); err != nil {
@@ -169,19 +213,13 @@ func main() {
 }
 
 func (s *server) enqueueStatus(ctx context.Context, update flow.StatusUpdate) error {
-	payload, err := json.Marshal(update)
-	if err != nil {
-		return err
-	}
-	return s.rdb.RPush(ctx, flow.QueueStatus, payload).Err()
+	_, err := s.bus.PublishJSON(ctx, bus.SubjectEventStatus, update, nil)
+	return err
 }
 
 func (s *server) enqueueAudit(ctx context.Context, event flow.AuditEvent) error {
-	payload, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-	return s.rdb.RPush(ctx, flow.QueueAudit, payload).Err()
+	_, err := s.bus.PublishJSON(ctx, bus.SubjectEventAudit, event, nil)
+	return err
 }
 
 func traceparentFromContext(ctx context.Context) string {
@@ -195,4 +233,11 @@ func redisAddr() string {
 		return addr
 	}
 	return "redis-service:6379"
+}
+
+func natsURL() string {
+	if addr := os.Getenv("NATS_URL"); addr != "" {
+		return addr
+	}
+	return bus.DefaultURL
 }

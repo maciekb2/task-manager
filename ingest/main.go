@@ -8,13 +8,16 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
+	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type enrichResponse struct {
@@ -32,42 +35,62 @@ func main() {
 	}
 	defer shutdown(ctx)
 
-	rdb := redis.NewClient(&redis.Options{Addr: redisAddr()})
+	busClient, err := bus.Connect(bus.Config{URL: natsURL(), Name: "ingest"})
+	if err != nil {
+		log.Fatalf("nats connect failed: %v", err)
+	}
+	defer busClient.Close()
+	if _, err := busClient.EnsureStream(bus.TasksStreamConfig()); err != nil {
+		log.Fatalf("nats stream setup failed: %v", err)
+	}
+	if _, err := busClient.EnsureStream(bus.EventsStreamConfig()); err != nil {
+		log.Fatalf("nats stream setup failed: %v", err)
+	}
+	consumerCfg := bus.DefaultConsumerConfig(bus.DurableName(bus.StreamTasks, "ingest"), bus.SubjectTaskIngest)
+	if _, err := busClient.EnsureConsumer(bus.StreamTasks, consumerCfg); err != nil {
+		log.Fatalf("nats consumer setup failed: %v", err)
+	}
+	sub, err := busClient.PullSubscribe(bus.SubjectTaskIngest, consumerCfg.Durable)
+	if err != nil {
+		log.Fatalf("nats subscribe failed: %v", err)
+	}
+
 	tracer := otel.Tracer("ingest")
-
-	for {
-		items, err := rdb.BRPop(ctx, 0, flow.QueueIngest).Result()
-		if err != nil {
-			log.Printf("ingest: BRPOP failed: %v", err)
-			continue
-		}
-		if len(items) < 2 {
-			continue
-		}
-
+	if err := busClient.Consume(ctx, sub, bus.ConsumeOptions{Batch: 5, MaxWait: 5 * time.Second, DisableAutoAck: true}, func(msgCtx context.Context, msg *nats.Msg) error {
 		var task flow.TaskEnvelope
-		if err := json.Unmarshal([]byte(items[1]), &task); err != nil {
+		if err := json.Unmarshal(msg.Data, &task); err != nil {
 			log.Printf("ingest: bad payload: %v", err)
-			continue
+			handleProcessingFailure(msgCtx, busClient, msg, flow.TaskEnvelope{}, "bad payload", false)
+			return nil
 		}
 
-		parentCtx := contextFromTraceParent(task.TraceParent)
+		if task.TraceParent == "" {
+			task.TraceParent = traceparentFromContext(msgCtx)
+		}
+
+		parentCtx := msgCtx
+		if !trace.SpanContextFromContext(parentCtx).IsValid() && task.TraceParent != "" {
+			parentCtx = contextFromTraceParent(task.TraceParent)
+		}
 		ctxTask, span := tracer.Start(parentCtx, "ingest.process")
+		bus.AnnotateSpan(span, msg)
 		span.SetAttributes(
 			attribute.String("task.id", task.TaskID),
 			attribute.Int64("task.priority", int64(task.Priority)),
 			attribute.Int64("task.number1", int64(task.Number1)),
 			attribute.Int64("task.number2", int64(task.Number2)),
-			attribute.String("queue.name", flow.QueueIngest),
+			attribute.String("queue.source", bus.SubjectTaskIngest),
+			attribute.String("queue.target", bus.SubjectTaskSchedule),
 		)
 
 		if strings.TrimSpace(task.TaskDescription) == "" {
 			span.SetAttributes(attribute.String("task.validation", "missing_description"))
 			span.RecordError(errInvalidTask("missing description"))
-			enqueueDeadLetter(ctxTask, rdb, task, "missing description")
-			enqueueStatus(ctxTask, rdb, task, "REJECTED", "ingest")
+			enqueueDeadLetter(ctxTask, busClient, task, "missing description", bus.DeliveryAttempt(msg))
+			enqueueStatus(ctxTask, busClient, task, "REJECTED", "ingest")
+			ackMessage("ingest", msg)
 			span.End()
-			continue
+			return nil
 		}
 
 		enriched, err := enrichTask(ctxTask, task)
@@ -80,26 +103,20 @@ func main() {
 				attribute.String("task.category", task.Category),
 				attribute.Int64("task.score", int64(task.Score)),
 			)
-			enqueueStatus(ctxTask, rdb, task, "ENRICHED", "ingest")
+			enqueueStatus(ctxTask, busClient, task, "ENRICHED", "ingest")
 		}
 
 		task.Attempt++
-		payload, err := json.Marshal(task)
-		if err != nil {
-			log.Printf("ingest: serialize failed: %v", err)
+		if _, err := busClient.PublishJSON(ctxTask, bus.SubjectTaskSchedule, task, nil); err != nil {
+			log.Printf("ingest: publish schedule failed: %v", err)
+			span.RecordError(err)
 			span.End()
-			continue
+			handleProcessingFailure(msgCtx, busClient, msg, task, "publish schedule failed", true)
+			return nil
 		}
 
-		if err := rdb.RPush(ctxTask, flow.QueueSchedule, payload).Err(); err != nil {
-			log.Printf("ingest: enqueue failed: %v", err)
-			enqueueDeadLetter(ctxTask, rdb, task, "enqueue schedule failed")
-			span.End()
-			continue
-		}
-
-		enqueueStatus(ctxTask, rdb, task, "VALIDATED", "ingest")
-		enqueueAudit(ctxTask, rdb, flow.AuditEvent{
+		enqueueStatus(ctxTask, busClient, task, "VALIDATED", "ingest")
+		enqueueAudit(ctxTask, busClient, flow.AuditEvent{
 			TaskID:      task.TaskID,
 			Event:       "task.validated",
 			Detail:      "Task validated and forwarded",
@@ -109,6 +126,10 @@ func main() {
 		})
 
 		span.End()
+		ackMessage("ingest", msg)
+		return nil
+	}); err != nil {
+		log.Fatalf("ingest consume failed: %v", err)
 	}
 }
 
@@ -144,7 +165,7 @@ func enrichTask(ctx context.Context, task flow.TaskEnvelope) (flow.TaskEnvelope,
 	return task, nil
 }
 
-func enqueueStatus(ctx context.Context, rdb *redis.Client, task flow.TaskEnvelope, status, source string) {
+func enqueueStatus(ctx context.Context, busClient *bus.Client, task flow.TaskEnvelope, status, source string) {
 	update := flow.StatusUpdate{
 		TaskID:      task.TaskID,
 		Status:      status,
@@ -152,41 +173,30 @@ func enqueueStatus(ctx context.Context, rdb *redis.Client, task flow.TaskEnvelop
 		Timestamp:   flow.Now(),
 		Source:      source,
 	}
-	payload, err := json.Marshal(update)
-	if err != nil {
-		log.Printf("ingest: status marshal failed: %v", err)
-		return
-	}
-	if err := rdb.RPush(ctx, flow.QueueStatus, payload).Err(); err != nil {
-		log.Printf("ingest: status enqueue failed: %v", err)
+	if _, err := busClient.PublishJSON(ctx, bus.SubjectEventStatus, update, nil); err != nil {
+		log.Printf("ingest: status publish failed: %v", err)
 	}
 }
 
-func enqueueAudit(ctx context.Context, rdb *redis.Client, event flow.AuditEvent) {
-	payload, err := json.Marshal(event)
-	if err != nil {
-		log.Printf("ingest: audit marshal failed: %v", err)
-		return
-	}
-	if err := rdb.RPush(ctx, flow.QueueAudit, payload).Err(); err != nil {
-		log.Printf("ingest: audit enqueue failed: %v", err)
+func enqueueAudit(ctx context.Context, busClient *bus.Client, event flow.AuditEvent) {
+	if _, err := busClient.PublishJSON(ctx, bus.SubjectEventAudit, event, nil); err != nil {
+		log.Printf("ingest: audit publish failed: %v", err)
 	}
 }
 
-func enqueueDeadLetter(ctx context.Context, rdb *redis.Client, task flow.TaskEnvelope, reason string) {
+func enqueueDeadLetter(ctx context.Context, busClient *bus.Client, task flow.TaskEnvelope, reason string, attempts int) {
+	if attempts <= 0 {
+		attempts = 1
+	}
 	entry := flow.DeadLetter{
 		Task:      task,
 		Reason:    reason,
+		Attempts:  attempts,
 		Source:    "ingest",
 		Timestamp: flow.Now(),
 	}
-	payload, err := json.Marshal(entry)
-	if err != nil {
-		log.Printf("ingest: deadletter marshal failed: %v", err)
-		return
-	}
-	if err := rdb.RPush(ctx, flow.QueueDeadLetter, payload).Err(); err != nil {
-		log.Printf("ingest: deadletter enqueue failed: %v", err)
+	if _, err := busClient.PublishJSON(ctx, bus.SubjectEventDeadLetter, entry, nil); err != nil {
+		log.Printf("ingest: deadletter publish failed: %v", err)
 	}
 }
 
@@ -195,11 +205,11 @@ func contextFromTraceParent(traceParent string) context.Context {
 	return otel.GetTextMapPropagator().Extract(context.Background(), carrier)
 }
 
-func redisAddr() string {
-	if addr := os.Getenv("REDIS_ADDR"); addr != "" {
+func natsURL() string {
+	if addr := os.Getenv("NATS_URL"); addr != "" {
 		return addr
 	}
-	return "redis-service:6379"
+	return bus.DefaultURL
 }
 
 func enricherURL() string {
@@ -212,3 +222,37 @@ func enricherURL() string {
 type errInvalidTask string
 
 func (e errInvalidTask) Error() string { return string(e) }
+
+func traceparentFromContext(ctx context.Context) string {
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	return carrier["traceparent"]
+}
+
+func handleProcessingFailure(ctx context.Context, busClient *bus.Client, msg *nats.Msg, task flow.TaskEnvelope, reason string, retry bool) {
+	attempts := bus.DeliveryAttempt(msg)
+	if !retry || attempts >= bus.MaxDeliver() {
+		enqueueDeadLetter(ctx, busClient, task, reason, attempts)
+		ackMessage("ingest", msg)
+		return
+	}
+	nakMessage("ingest", msg)
+}
+
+func ackMessage(service string, msg *nats.Msg) {
+	if msg == nil {
+		return
+	}
+	if err := msg.Ack(); err != nil {
+		log.Printf("%s: ack failed: %v", service, err)
+	}
+}
+
+func nakMessage(service string, msg *nats.Msg) {
+	if msg == nil {
+		return
+	}
+	if err := msg.Nak(); err != nil {
+		log.Printf("%s: nak failed: %v", service, err)
+	}
+}

@@ -3,17 +3,21 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"math/rand"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
+	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func main() {
@@ -24,123 +28,216 @@ func main() {
 	}
 	defer shutdown(ctx)
 
-	rdb := redis.NewClient(&redis.Options{Addr: redisAddr()})
+	busClient, err := bus.Connect(bus.Config{URL: natsURL(), Name: "worker"})
+	if err != nil {
+		log.Fatalf("nats connect failed: %v", err)
+	}
+	defer busClient.Close()
+	if _, err := busClient.EnsureStream(bus.TasksStreamConfig()); err != nil {
+		log.Fatalf("nats stream setup failed: %v", err)
+	}
+	if _, err := busClient.EnsureStream(bus.EventsStreamConfig()); err != nil {
+		log.Fatalf("nats stream setup failed: %v", err)
+	}
+
+	highCfg := bus.DefaultConsumerConfig(bus.DurableName(bus.StreamTasks, "worker-high"), bus.SubjectTaskWorkerHigh)
+	mediumCfg := bus.DefaultConsumerConfig(bus.DurableName(bus.StreamTasks, "worker-medium"), bus.SubjectTaskWorkerMedium)
+	lowCfg := bus.DefaultConsumerConfig(bus.DurableName(bus.StreamTasks, "worker-low"), bus.SubjectTaskWorkerLow)
+	if _, err := busClient.EnsureConsumer(bus.StreamTasks, highCfg); err != nil {
+		log.Fatalf("nats consumer setup failed: %v", err)
+	}
+	if _, err := busClient.EnsureConsumer(bus.StreamTasks, mediumCfg); err != nil {
+		log.Fatalf("nats consumer setup failed: %v", err)
+	}
+	if _, err := busClient.EnsureConsumer(bus.StreamTasks, lowCfg); err != nil {
+		log.Fatalf("nats consumer setup failed: %v", err)
+	}
+	highSub, err := busClient.PullSubscribe(bus.SubjectTaskWorkerHigh, highCfg.Durable)
+	if err != nil {
+		log.Fatalf("nats subscribe failed: %v", err)
+	}
+	mediumSub, err := busClient.PullSubscribe(bus.SubjectTaskWorkerMedium, mediumCfg.Durable)
+	if err != nil {
+		log.Fatalf("nats subscribe failed: %v", err)
+	}
+	lowSub, err := busClient.PullSubscribe(bus.SubjectTaskWorkerLow, lowCfg.Durable)
+	if err != nil {
+		log.Fatalf("nats subscribe failed: %v", err)
+	}
+
 	count := workerCount()
-	log.Printf("worker: starting %d workers", count)
+	failRate := workerFailRate()
+	log.Printf("worker: starting %d workers (fail rate %.2f)", count, failRate)
+	jobs := make(chan *nats.Msg, count*2)
+	go dispatchLoop(ctx, []prioritySub{
+		{subject: bus.SubjectTaskWorkerHigh, sub: highSub},
+		{subject: bus.SubjectTaskWorkerMedium, sub: mediumSub},
+		{subject: bus.SubjectTaskWorkerLow, sub: lowSub},
+	}, jobs)
 
 	for i := 0; i < count; i++ {
 		workerID := i + 1
-		go processLoop(ctx, rdb, workerID)
+		go processLoop(ctx, busClient, jobs, workerID, failRate)
 	}
 
 	select {}
 }
 
-func processLoop(ctx context.Context, rdb *redis.Client, workerID int) {
-	tracer := otel.Tracer("worker")
-	queues := flow.WorkerQueuesByPriority()
+type prioritySub struct {
+	subject string
+	sub     *nats.Subscription
+}
+
+func dispatchLoop(ctx context.Context, subs []prioritySub, out chan<- *nats.Msg) {
 	for {
-		tasks, err := rdb.BLPop(ctx, 0, queues...).Result()
-		if err != nil {
-			log.Printf("worker %d: BLPOP failed: %v", workerID, err)
-			time.Sleep(1 * time.Second)
-			continue
+		select {
+		case <-ctx.Done():
+			return
+		default:
 		}
 
-		if len(tasks) < 2 {
-			continue
+		dispatched := false
+		for _, entry := range subs {
+			msg, err := fetchOne(entry.sub, 300*time.Millisecond)
+			if err != nil {
+				log.Printf("worker: fetch from %s failed: %v", entry.subject, err)
+				time.Sleep(500 * time.Millisecond)
+				dispatched = true
+				break
+			}
+			if msg == nil {
+				continue
+			}
+			out <- msg
+			dispatched = true
+			break
 		}
-
-		queueName := tasks[0]
-		payload := tasks[1]
-
-		var task flow.TaskEnvelope
-		if err := json.Unmarshal([]byte(payload), &task); err != nil {
-			log.Printf("worker %d: bad payload: %v", workerID, err)
-			continue
+		if !dispatched {
+			time.Sleep(200 * time.Millisecond)
 		}
-
-		parentCtx := contextFromTraceParent(task.TraceParent)
-		ctxTask, span := tracer.Start(parentCtx, "worker.process")
-		start := time.Now()
-		span.SetAttributes(
-			attribute.String("task.id", task.TaskID),
-			attribute.Int64("task.priority", int64(task.Priority)),
-			attribute.Int("worker.id", workerID),
-			attribute.String("queue.source", queueName),
-			attribute.String("queue.target", flow.QueueResults),
-		)
-
-		enqueueStatus(ctxTask, rdb, task, "IN_PROGRESS", "worker")
-		enqueueAudit(ctxTask, rdb, flow.AuditEvent{
-			TaskID:      task.TaskID,
-			Event:       "task.started",
-			Detail:      "Worker picked task",
-			TraceParent: task.TraceParent,
-			Source:      "worker",
-			Timestamp:   flow.Now(),
-		})
-
-		checksum, iterations := simulateWork(task.Number1, task.Number2, task.Priority)
-		ioDelay := time.Duration(200+rand.Intn(400)) * time.Millisecond
-		time.Sleep(ioDelay)
-		span.SetAttributes(
-			attribute.Int("task.work.iterations", iterations),
-			attribute.Int64("task.work.checksum", checksum),
-			attribute.Float64("task.processing_seconds", time.Since(start).Seconds()),
-			attribute.Float64("task.simulated_io_ms", float64(ioDelay.Milliseconds())),
-		)
-
-		if rand.Float32() < 0.2 {
-			log.Printf("worker %d: task %s failed", workerID, task.TaskID)
-			span.SetAttributes(attribute.String("task.outcome", "failed"))
-			enqueueStatus(ctxTask, rdb, task, "FAILED", "worker")
-			enqueueDeadLetter(ctxTask, rdb, task, "processing failed")
-			span.End()
-			continue
-		}
-
-		result := int32(task.Number1 + task.Number2)
-		resultPayload := flow.ResultEnvelope{
-			Task:        task,
-			Result:      result,
-			ProcessedAt: flow.Now(),
-			WorkerID:    workerID,
-		}
-		encoded, err := json.Marshal(resultPayload)
-		if err != nil {
-			log.Printf("worker %d: result serialize failed: %v", workerID, err)
-			enqueueDeadLetter(ctx, rdb, task, "result serialize failed")
-			span.End()
-			continue
-		}
-
-		if err := rdb.RPush(ctxTask, flow.QueueResults, encoded).Err(); err != nil {
-			log.Printf("worker %d: enqueue results failed: %v", workerID, err)
-			enqueueDeadLetter(ctxTask, rdb, task, "enqueue results failed")
-			span.End()
-			continue
-		}
-
-		span.SetAttributes(
-			attribute.String("task.outcome", "completed"),
-			attribute.Int64("task.result", int64(result)),
-		)
-		enqueueStatus(ctxTask, rdb, task, "COMPLETED", "worker")
-		enqueueAudit(ctxTask, rdb, flow.AuditEvent{
-			TaskID:      task.TaskID,
-			Event:       "task.completed",
-			Detail:      "Worker finished task",
-			TraceParent: task.TraceParent,
-			Source:      "worker",
-			Timestamp:   flow.Now(),
-		})
-
-		span.End()
 	}
 }
 
-func enqueueStatus(ctx context.Context, rdb *redis.Client, task flow.TaskEnvelope, status, source string) {
+func fetchOne(sub *nats.Subscription, wait time.Duration) (*nats.Msg, error) {
+	msgs, err := sub.Fetch(1, nats.MaxWait(wait))
+	if err != nil {
+		if errors.Is(err, nats.ErrTimeout) {
+			return nil, nil
+		}
+		if errors.Is(err, context.Canceled) {
+			return nil, err
+		}
+		return nil, err
+	}
+	if len(msgs) == 0 {
+		return nil, nil
+	}
+	return msgs[0], nil
+}
+
+func processLoop(ctx context.Context, busClient *bus.Client, jobs <-chan *nats.Msg, workerID int, failRate float64) {
+	tracer := otel.Tracer("worker")
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-jobs:
+			if !ok || msg == nil {
+				continue
+			}
+
+			msgCtx := bus.ContextFromHeaders(ctx, msg.Header)
+			var task flow.TaskEnvelope
+			if err := json.Unmarshal(msg.Data, &task); err != nil {
+				log.Printf("worker %d: bad payload: %v", workerID, err)
+				handleProcessingFailure(msgCtx, busClient, msg, flow.TaskEnvelope{}, "bad payload", false)
+				continue
+			}
+			if task.TraceParent == "" {
+				task.TraceParent = traceparentFromContext(msgCtx)
+			}
+
+			parentCtx := msgCtx
+			if !trace.SpanContextFromContext(parentCtx).IsValid() && task.TraceParent != "" {
+				parentCtx = contextFromTraceParent(task.TraceParent)
+			}
+			ctxTask, span := tracer.Start(parentCtx, "worker.process")
+			bus.AnnotateSpan(span, msg)
+			start := time.Now()
+			span.SetAttributes(
+				attribute.String("task.id", task.TaskID),
+				attribute.Int64("task.priority", int64(task.Priority)),
+				attribute.Int("worker.id", workerID),
+				attribute.String("queue.source", msg.Subject),
+				attribute.String("queue.target", bus.SubjectTaskResults),
+			)
+
+			enqueueStatus(ctxTask, busClient, task, "IN_PROGRESS", "worker")
+			enqueueAudit(ctxTask, busClient, flow.AuditEvent{
+				TaskID:      task.TaskID,
+				Event:       "task.started",
+				Detail:      "Worker picked task",
+				TraceParent: task.TraceParent,
+				Source:      "worker",
+				Timestamp:   flow.Now(),
+			})
+
+			checksum, iterations := simulateWork(task.Number1, task.Number2, task.Priority)
+			ioDelay := time.Duration(200+rand.Intn(400)) * time.Millisecond
+			time.Sleep(ioDelay)
+			span.SetAttributes(
+				attribute.Int("task.work.iterations", iterations),
+				attribute.Int64("task.work.checksum", checksum),
+				attribute.Float64("task.processing_seconds", time.Since(start).Seconds()),
+				attribute.Float64("task.simulated_io_ms", float64(ioDelay.Milliseconds())),
+			)
+
+			if rand.Float64() < failRate {
+				log.Printf("worker %d: task %s failed", workerID, task.TaskID)
+				span.SetAttributes(attribute.String("task.outcome", "failed"))
+				enqueueStatus(ctxTask, busClient, task, "FAILED", "worker")
+				enqueueDeadLetter(ctxTask, busClient, task, "processing failed", bus.DeliveryAttempt(msg))
+				ackMessage("worker", msg)
+				span.End()
+				continue
+			}
+
+			result := int32(task.Number1 + task.Number2)
+			resultPayload := flow.ResultEnvelope{
+				Task:        task,
+				Result:      result,
+				ProcessedAt: flow.Now(),
+				WorkerID:    workerID,
+			}
+			if _, err := busClient.PublishJSON(ctxTask, bus.SubjectTaskResults, resultPayload, nil); err != nil {
+				log.Printf("worker %d: publish results failed: %v", workerID, err)
+				span.RecordError(err)
+				handleProcessingFailure(ctxTask, busClient, msg, task, "publish results failed", true)
+				span.End()
+				continue
+			}
+
+			span.SetAttributes(
+				attribute.String("task.outcome", "completed"),
+				attribute.Int64("task.result", int64(result)),
+			)
+			enqueueStatus(ctxTask, busClient, task, "COMPLETED", "worker")
+			enqueueAudit(ctxTask, busClient, flow.AuditEvent{
+				TaskID:      task.TaskID,
+				Event:       "task.completed",
+				Detail:      "Worker finished task",
+				TraceParent: task.TraceParent,
+				Source:      "worker",
+				Timestamp:   flow.Now(),
+			})
+
+			ackMessage("worker", msg)
+			span.End()
+		}
+	}
+}
+
+func enqueueStatus(ctx context.Context, busClient *bus.Client, task flow.TaskEnvelope, status, source string) {
 	update := flow.StatusUpdate{
 		TaskID:      task.TaskID,
 		Status:      status,
@@ -148,41 +245,30 @@ func enqueueStatus(ctx context.Context, rdb *redis.Client, task flow.TaskEnvelop
 		Timestamp:   flow.Now(),
 		Source:      source,
 	}
-	payload, err := json.Marshal(update)
-	if err != nil {
-		log.Printf("worker: status marshal failed: %v", err)
-		return
-	}
-	if err := rdb.RPush(ctx, flow.QueueStatus, payload).Err(); err != nil {
-		log.Printf("worker: status enqueue failed: %v", err)
+	if _, err := busClient.PublishJSON(ctx, bus.SubjectEventStatus, update, nil); err != nil {
+		log.Printf("worker: status publish failed: %v", err)
 	}
 }
 
-func enqueueAudit(ctx context.Context, rdb *redis.Client, event flow.AuditEvent) {
-	payload, err := json.Marshal(event)
-	if err != nil {
-		log.Printf("worker: audit marshal failed: %v", err)
-		return
-	}
-	if err := rdb.RPush(ctx, flow.QueueAudit, payload).Err(); err != nil {
-		log.Printf("worker: audit enqueue failed: %v", err)
+func enqueueAudit(ctx context.Context, busClient *bus.Client, event flow.AuditEvent) {
+	if _, err := busClient.PublishJSON(ctx, bus.SubjectEventAudit, event, nil); err != nil {
+		log.Printf("worker: audit publish failed: %v", err)
 	}
 }
 
-func enqueueDeadLetter(ctx context.Context, rdb *redis.Client, task flow.TaskEnvelope, reason string) {
+func enqueueDeadLetter(ctx context.Context, busClient *bus.Client, task flow.TaskEnvelope, reason string, attempts int) {
+	if attempts <= 0 {
+		attempts = 1
+	}
 	entry := flow.DeadLetter{
 		Task:      task,
 		Reason:    reason,
+		Attempts:  attempts,
 		Source:    "worker",
 		Timestamp: flow.Now(),
 	}
-	payload, err := json.Marshal(entry)
-	if err != nil {
-		log.Printf("worker: deadletter marshal failed: %v", err)
-		return
-	}
-	if err := rdb.RPush(ctx, flow.QueueDeadLetter, payload).Err(); err != nil {
-		log.Printf("worker: deadletter enqueue failed: %v", err)
+	if _, err := busClient.PublishJSON(ctx, bus.SubjectEventDeadLetter, entry, nil); err != nil {
+		log.Printf("worker: deadletter publish failed: %v", err)
 	}
 }
 
@@ -205,11 +291,25 @@ func workerCount() int {
 	return count
 }
 
-func redisAddr() string {
-	if addr := os.Getenv("REDIS_ADDR"); addr != "" {
+func workerFailRate() float64 {
+	const defaultRate = 0.05
+	value := strings.TrimSpace(os.Getenv("WORKER_FAIL_RATE"))
+	if value == "" {
+		return defaultRate
+	}
+	rate, err := strconv.ParseFloat(value, 64)
+	if err != nil || rate < 0 || rate > 1 {
+		log.Printf("worker: invalid WORKER_FAIL_RATE=%q, using %.2f", value, defaultRate)
+		return defaultRate
+	}
+	return rate
+}
+
+func natsURL() string {
+	if addr := os.Getenv("NATS_URL"); addr != "" {
 		return addr
 	}
-	return "redis-service:6379"
+	return bus.DefaultURL
 }
 
 func simulateWork(number1, number2 int32, priority int32) (int64, int) {
@@ -222,4 +322,38 @@ func simulateWork(number1, number2 int32, priority int32) (int64, int) {
 		hash ^= hash >> 32
 	}
 	return int64(hash & 0x7fffffffffffffff), iterations
+}
+
+func handleProcessingFailure(ctx context.Context, busClient *bus.Client, msg *nats.Msg, task flow.TaskEnvelope, reason string, retry bool) {
+	attempts := bus.DeliveryAttempt(msg)
+	if !retry || attempts >= bus.MaxDeliver() {
+		enqueueDeadLetter(ctx, busClient, task, reason, attempts)
+		ackMessage("worker", msg)
+		return
+	}
+	nakMessage("worker", msg)
+}
+
+func traceparentFromContext(ctx context.Context) string {
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	return carrier["traceparent"]
+}
+
+func ackMessage(service string, msg *nats.Msg) {
+	if msg == nil {
+		return
+	}
+	if err := msg.Ack(); err != nil {
+		log.Printf("%s: ack failed: %v", service, err)
+	}
+}
+
+func nakMessage(service string, msg *nats.Msg) {
+	if msg == nil {
+		return
+	}
+	if err := msg.Nak(); err != nil {
+		log.Printf("%s: nak failed: %v", service, err)
+	}
 }

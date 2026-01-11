@@ -95,6 +95,33 @@ services:
     networks:
       - taskmanager-net
 
+  nats:
+    image: nats:2.10.10
+    command: ["-c", "/etc/nats/nats.conf"]
+    restart: unless-stopped
+    volumes:
+      - ./configs/nats.conf:/etc/nats/nats.conf:ro
+      - nats-data:/data
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    networks:
+      - taskmanager-net
+
+  envoy:
+    image: envoyproxy/envoy:v1.30.2
+    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+    restart: unless-stopped
+    volumes:
+      - ./configs/envoy.yaml:/etc/envoy/envoy.yaml:ro
+    ports:
+      - "50051:50051"
+      - "9901:9901"
+    depends_on:
+      - taskmanager-service
+    networks:
+      - taskmanager-net
+
   taskmanager-service:
     build:
       context: .
@@ -108,9 +135,6 @@ services:
       - tempo
       - notifier
       - redis-service
-    ports:
-      - "50051:50051"
-      - "2222:2222"
     networks:
       - taskmanager-net
 
@@ -121,12 +145,28 @@ services:
     restart: unless-stopped
     environment:
       - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - TASKMANAGER_ADDR=envoy:50051
     depends_on:
       - otel-collector
       - tempo
-      - taskmanager-service
-    ports:
-      - "2223:2223"
+      - envoy
+    networks:
+      - taskmanager-net
+
+  producer:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    restart: unless-stopped
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
+      - TASKMANAGER_ADDR=envoy:50051
+      - PRODUCER_RATE=2
+      - PRODUCER_CONCURRENCY=4
+    depends_on:
+      - otel-collector
+      - tempo
+      - envoy
     networks:
       - taskmanager-net
 
@@ -180,6 +220,7 @@ services:
     environment:
       - REDIS_ADDR=redis-service:6379
       - WORKER_COUNT=4
+      - WORKER_FAIL_RATE=0.05
       - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
     depends_on:
       - otel-collector
@@ -260,3 +301,4 @@ volumes:
   loki-data:
   promtail-positions:
   grafana-data:
+  nats-data:

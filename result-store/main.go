@@ -7,13 +7,26 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
+	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
+
+const resultStoreScript = `if redis.call("EXISTS", KEYS[1]) == 1 then return 0 end
+redis.call("HSET", KEYS[1], "result", ARGV[1], "processed_at", ARGV[2], "worker_id", ARGV[3], "category", ARGV[4], "score", ARGV[5])
+return 1`
+
+type resultStoreMetrics struct {
+	e2eLatency metric.Float64Histogram
+}
 
 func main() {
 	ctx := context.Background()
@@ -22,60 +35,126 @@ func main() {
 		log.Fatalf("telemetry init failed: %v", err)
 	}
 	defer shutdown(ctx)
+	metrics, err := initMetrics()
+	if err != nil {
+		log.Fatalf("metrics init failed: %v", err)
+	}
 
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr()})
 	go startHTTPServer(rdb)
+	busClient, err := bus.Connect(bus.Config{URL: natsURL(), Name: "result-store"})
+	if err != nil {
+		log.Fatalf("nats connect failed: %v", err)
+	}
+	defer busClient.Close()
+	if _, err := busClient.EnsureStream(bus.TasksStreamConfig()); err != nil {
+		log.Fatalf("nats stream setup failed: %v", err)
+	}
+	if _, err := busClient.EnsureStream(bus.EventsStreamConfig()); err != nil {
+		log.Fatalf("nats stream setup failed: %v", err)
+	}
+	consumerCfg := bus.DefaultConsumerConfig(bus.DurableName(bus.StreamTasks, "result-store"), bus.SubjectTaskResults)
+	if _, err := busClient.EnsureConsumer(bus.StreamTasks, consumerCfg); err != nil {
+		log.Fatalf("nats consumer setup failed: %v", err)
+	}
+	sub, err := busClient.PullSubscribe(bus.SubjectTaskResults, consumerCfg.Durable)
+	if err != nil {
+		log.Fatalf("nats subscribe failed: %v", err)
+	}
 
 	tracer := otel.Tracer("result-store")
-	for {
-		items, err := rdb.BRPop(ctx, 0, flow.QueueResults).Result()
-		if err != nil {
-			log.Printf("result-store: BRPOP failed: %v", err)
-			continue
-		}
-		if len(items) < 2 {
-			continue
-		}
-
+	if err := busClient.Consume(ctx, sub, bus.ConsumeOptions{Batch: 5, MaxWait: 5 * time.Second, DisableAutoAck: true}, func(msgCtx context.Context, msg *nats.Msg) error {
 		var result flow.ResultEnvelope
-		if err := json.Unmarshal([]byte(items[1]), &result); err != nil {
+		if err := json.Unmarshal(msg.Data, &result); err != nil {
 			log.Printf("result-store: bad payload: %v", err)
-			continue
+			handleProcessingFailure(msgCtx, busClient, msg, flow.TaskEnvelope{}, "bad payload", false)
+			return nil
 		}
 
-		parentCtx := contextFromTraceParent(result.Task.TraceParent)
+		if result.Task.TraceParent == "" {
+			result.Task.TraceParent = traceparentFromContext(msgCtx)
+		}
+
+		parentCtx := msgCtx
+		if !trace.SpanContextFromContext(parentCtx).IsValid() && result.Task.TraceParent != "" {
+			parentCtx = contextFromTraceParent(result.Task.TraceParent)
+		}
 		ctxTask, span := tracer.Start(parentCtx, "result-store.persist")
+		bus.AnnotateSpan(span, msg)
 		span.SetAttributes(
 			attribute.String("task.id", result.Task.TaskID),
 			attribute.Int("worker.id", result.WorkerID),
 			attribute.Int64("task.result", int64(result.Result)),
-			attribute.String("queue.source", flow.QueueResults),
+			attribute.String("queue.source", bus.SubjectTaskResults),
 		)
 
 		key := "task_result:" + result.Task.TaskID
 		span.SetAttributes(attribute.String("redis.key", key))
-		if err := rdb.HSet(ctxTask, key, map[string]interface{}{
-			"result":       result.Result,
-			"processed_at": result.ProcessedAt,
-			"worker_id":    result.WorkerID,
-			"category":     result.Task.Category,
-			"score":        result.Task.Score,
-		}).Err(); err != nil {
+		stored, err := storeResultOnce(ctxTask, rdb, key, result)
+		if err != nil {
 			log.Printf("result-store: persist failed: %v", err)
+			span.RecordError(err)
 			span.End()
-			continue
+			handleProcessingFailure(msgCtx, busClient, msg, result.Task, "persist failed", true)
+			return nil
+		}
+		if !stored {
+			span.SetAttributes(attribute.Bool("result.duplicate", true))
 		}
 
-		enqueueAudit(ctxTask, rdb, flow.AuditEvent{
+		recordE2ELatency(ctxTask, metrics, result, span)
+
+		if err := enqueueAudit(ctxTask, busClient, flow.AuditEvent{
 			TaskID:      result.Task.TaskID,
 			Event:       "task.stored",
 			Detail:      "Result persisted",
 			TraceParent: result.Task.TraceParent,
 			Source:      "result-store",
 			Timestamp:   flow.Now(),
-		})
+		}); err != nil {
+			log.Printf("result-store: audit publish failed: %v", err)
+			span.RecordError(err)
+			span.End()
+			handleProcessingFailure(msgCtx, busClient, msg, result.Task, "audit publish failed", true)
+			return nil
+		}
 
 		span.End()
+		ackMessage("result-store", msg)
+		return nil
+	}); err != nil {
+		log.Fatalf("result-store consume failed: %v", err)
+	}
+}
+
+func initMetrics() (resultStoreMetrics, error) {
+	meter := otel.Meter("result-store")
+	e2eLatency, err := meter.Float64Histogram(
+		"taskmanager_task_e2e_seconds",
+		metric.WithUnit("s"),
+		metric.WithDescription("End-to-end task latency from submit to persist."),
+	)
+	if err != nil {
+		return resultStoreMetrics{}, err
+	}
+	return resultStoreMetrics{e2eLatency: e2eLatency}, nil
+}
+
+func recordE2ELatency(ctx context.Context, metrics resultStoreMetrics, result flow.ResultEnvelope, span trace.Span) {
+	if metrics.e2eLatency == nil {
+		return
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, result.Task.CreatedAt)
+	if err != nil {
+		return
+	}
+	latency := time.Since(createdAt).Seconds()
+	if latency < 0 {
+		return
+	}
+	metrics.e2eLatency.Record(ctx, latency, metric.WithAttributes(attribute.Int64("task.priority", int64(result.Task.Priority))))
+	if span != nil {
+		span.SetAttributes(attribute.Float64("task.e2e_seconds", latency))
 	}
 }
 
@@ -109,15 +188,9 @@ func startHTTPServer(rdb *redis.Client) {
 	}
 }
 
-func enqueueAudit(ctx context.Context, rdb *redis.Client, event flow.AuditEvent) {
-	payload, err := json.Marshal(event)
-	if err != nil {
-		log.Printf("result-store: audit marshal failed: %v", err)
-		return
-	}
-	if err := rdb.RPush(ctx, flow.QueueAudit, payload).Err(); err != nil {
-		log.Printf("result-store: audit enqueue failed: %v", err)
-	}
+func enqueueAudit(ctx context.Context, busClient *bus.Client, event flow.AuditEvent) error {
+	_, err := busClient.PublishJSON(ctx, bus.SubjectEventAudit, event, nil)
+	return err
 }
 
 func contextFromTraceParent(traceParent string) context.Context {
@@ -137,4 +210,82 @@ func redisAddr() string {
 		return addr
 	}
 	return "redis-service:6379"
+}
+
+func natsURL() string {
+	if addr := os.Getenv("NATS_URL"); addr != "" {
+		return addr
+	}
+	return bus.DefaultURL
+}
+
+func traceparentFromContext(ctx context.Context) string {
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	return carrier["traceparent"]
+}
+
+func storeResultOnce(ctx context.Context, rdb *redis.Client, key string, result flow.ResultEnvelope) (bool, error) {
+	res, err := rdb.Eval(ctx, resultStoreScript, []string{key},
+		result.Result,
+		result.ProcessedAt,
+		result.WorkerID,
+		result.Task.Category,
+		result.Task.Score,
+	).Result()
+	if err != nil {
+		return false, err
+	}
+	switch value := res.(type) {
+	case int64:
+		return value == 1, nil
+	case bool:
+		return value, nil
+	default:
+		return false, nil
+	}
+}
+
+func handleProcessingFailure(ctx context.Context, busClient *bus.Client, msg *nats.Msg, task flow.TaskEnvelope, reason string, retry bool) {
+	attempts := bus.DeliveryAttempt(msg)
+	if !retry || attempts >= bus.MaxDeliver() {
+		enqueueDeadLetter(ctx, busClient, task, reason, attempts)
+		ackMessage("result-store", msg)
+		return
+	}
+	nakMessage("result-store", msg)
+}
+
+func enqueueDeadLetter(ctx context.Context, busClient *bus.Client, task flow.TaskEnvelope, reason string, attempts int) {
+	if attempts <= 0 {
+		attempts = 1
+	}
+	entry := flow.DeadLetter{
+		Task:      task,
+		Reason:    reason,
+		Attempts:  attempts,
+		Source:    "result-store",
+		Timestamp: flow.Now(),
+	}
+	if _, err := busClient.PublishJSON(ctx, bus.SubjectEventDeadLetter, entry, nil); err != nil {
+		log.Printf("result-store: deadletter publish failed: %v", err)
+	}
+}
+
+func ackMessage(service string, msg *nats.Msg) {
+	if msg == nil {
+		return
+	}
+	if err := msg.Ack(); err != nil {
+		log.Printf("%s: ack failed: %v", service, err)
+	}
+}
+
+func nakMessage(service string, msg *nats.Msg) {
+	if msg == nil {
+		return
+	}
+	if err := msg.Nak(); err != nil {
+		log.Printf("%s: nak failed: %v", service, err)
+	}
 }

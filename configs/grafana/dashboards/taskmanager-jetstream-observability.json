@@ -1,0 +1,194 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "graphTooltip": 0,
+  "id": null,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer) (nats_jetstream_consumer_num_pending{consumer=~\"tasks-.*|events-.*\"}) or sum by (consumer) (gnatsd_jetstream_consumer_num_pending{consumer=~\"tasks-.*|events-.*\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "Consumer Pending (messages)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer) (nats_jetstream_consumer_num_ack_pending{consumer=~\"tasks-.*|events-.*\"}) or sum by (consumer) (gnatsd_jetstream_consumer_num_ack_pending{consumer=~\"tasks-.*|events-.*\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "Consumer Ack Pending (messages)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer) (rate(nats_jetstream_consumer_num_redelivered{consumer=~\"tasks-.*|events-.*\"}[5m])) or sum by (consumer) (rate(gnatsd_jetstream_consumer_num_redelivered{consumer=~\"tasks-.*|events-.*\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Redeliveries/s by Consumer (5m)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (message_subject) (rate({__name__=~\"spanmetrics_calls_total|traces_spanmetrics_calls_total\",service_name=~\"$service\",message_subject=~\"$subject\",span_name=~\"ingest\\\\.process|scheduler\\\\.schedule|worker\\\\.process|result-store\\\\.persist|notifier\\\\.update|audit\\\\.persist|deadletter\\\\.persist\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Throughput by Subject (spans/s)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "100 * sum by (message_subject) (rate({__name__=~\"spanmetrics_calls_total|traces_spanmetrics_calls_total\",service_name=~\"$service\",message_subject=~\"$subject\",span_name=~\"ingest\\\\.process|scheduler\\\\.schedule|worker\\\\.process|result-store\\\\.persist|notifier\\\\.update|audit\\\\.persist|deadletter\\\\.persist\",status_code=\"STATUS_CODE_ERROR\"}[5m])) / sum by (message_subject) (rate({__name__=~\"spanmetrics_calls_total|traces_spanmetrics_calls_total\",service_name=~\"$service\",message_subject=~\"$subject\",span_name=~\"ingest\\\\.process|scheduler\\\\.schedule|worker\\\\.process|result-store\\\\.persist|notifier\\\\.update|audit\\\\.persist|deadletter\\\\.persist\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Error Rate by Subject (%)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "query": "{resource.service.name=~\"$service\"} | span[\"message.subject\"] =~ \"$subject\"",
+          "queryType": "traceql",
+          "refId": "A",
+          "limit": 20
+        }
+      ],
+      "title": "Recent Traces by Subject",
+      "type": "traces"
+    },
+    {
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "targets": [
+        {
+          "query": "{resource.service.name=~\"$service\"} | span[\"message.deliver_count\"] > 1",
+          "queryType": "traceql",
+          "refId": "A",
+          "limit": 20
+        }
+      ],
+      "title": "Redelivered Traces (deliver_count > 1)",
+      "type": "traces"
+    }
+  ],
+  "schemaVersion": 39,
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "custom",
+        "label": "Service",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
+        "query": "task-manager-server,task-manager-client,task-ingest,task-enricher,task-scheduler,task-worker,task-notifier,task-result-store,task-audit,task-deadletter",
+        "options": [],
+        "includeAll": true,
+        "allValue": ".+"
+      },
+      {
+        "name": "subject",
+        "type": "custom",
+        "label": "Subject",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
+        "query": "tasks.ingest,tasks.schedule,tasks.worker.high,tasks.worker.medium,tasks.worker.low,tasks.results,events.status,events.audit,events.deadletter",
+        "options": [],
+        "includeAll": true,
+        "allValue": ".+"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "title": "Task Manager JetStream Observability",
+  "uid": "taskmanager-jetstream-observability",
+  "version": 1
+}

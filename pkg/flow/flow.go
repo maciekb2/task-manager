@@ -3,12 +3,12 @@ package flow
 import "time"
 
 const (
-	QueueIngest     = "queue:ingest"
-	QueueSchedule   = "queue:schedule"
-	QueueStatus     = "queue:status"
-	QueueResults    = "queue:results"
-	QueueAudit      = "queue:audit"
-	QueueDeadLetter = "queue:deadletter"
+	QueueIngest       = "queue:ingest"
+	QueueSchedule     = "queue:schedule"
+	QueueStatus       = "queue:status"
+	QueueResults      = "queue:results"
+	QueueAudit        = "queue:audit"
+	QueueDeadLetter   = "queue:deadletter"
 	QueueWorkerHigh   = "queue:worker:high"
 	QueueWorkerMedium = "queue:worker:medium"
 	QueueWorkerLow    = "queue:worker:low"
@@ -54,6 +54,7 @@ type AuditEvent struct {
 type DeadLetter struct {
 	Task      TaskEnvelope `json:"task"`
 	Reason    string       `json:"reason"`
+	Attempts  int          `json:"attempts,omitempty"`
 	Source    string       `json:"source"`
 	Timestamp string       `json:"timestamp"`
 }

@@ -24,12 +24,12 @@ This document explains how the **Asynchronous Task Manager** repository is struc
 ## Pipeline Flow
 
 1. **client → server (gRPC)** – `SubmitTask` accepts a task and stores metadata.
-2. **server → Redis (queue:ingest)** – Task payload is queued for ingestion.
-3. **ingest → enricher (HTTP)** – Task is enriched and forwarded to **queue:schedule**.
-4. **scheduler → Redis (priority queues)** – Task is routed to `queue:worker:*` by priority.
-5. **worker → Redis (queue:results)** – Worker processes the task and emits a result.
-6. **result-store → Redis (task_result:<id>)** – Result is persisted.
-7. **status updates → notifier → Redis pubsub** – Status updates are published to `task_status:<id>`.
+2. **server → JetStream (`tasks.ingest`)** – Task payload is queued for ingestion.
+3. **ingest → enricher (HTTP)** – Task is enriched and forwarded to `tasks.schedule`.
+4. **scheduler → JetStream (`tasks.worker.*`)** – Task is routed by priority.
+5. **worker → JetStream (`tasks.results`)** – Worker processes the task and emits a result.
+6. **result-store → Redis (`task_result:<id>`)** – Result is persisted (latest view).
+7. **events.status → notifier → Redis pubsub** – Status updates land in `task_status:<id>`.
 8. **server → client (gRPC stream)** – Client receives live status updates.
 9. **audit/deadletter** – Background consumers store audit events and failed tasks.
 
@@ -37,11 +37,21 @@ Trace context is propagated via a `traceparent` field inside the task payload be
 
 ## Redis Keys and Queues
 
-- `queue:ingest`, `queue:schedule`, `queue:results`, `queue:status`, `queue:audit`, `queue:deadletter`
-- `queue:worker:high`, `queue:worker:medium`, `queue:worker:low`
 - `task:<id>` (task metadata)
 - `task_status:<id>` (status hash + pubsub channel)
 - `task_result:<id>` (results)
+- `audit_events` (audit list)
+- `dead_letter` (deadletter list)
+
+## JetStream Pipeline Contract (planned)
+
+Streams:
+- `TASKS` → `tasks.ingest`, `tasks.schedule`, `tasks.worker.high`, `tasks.worker.medium`, `tasks.worker.low`, `tasks.results`
+- `EVENTS` → `events.status`, `events.audit`, `events.deadletter`
+
+Defaults:
+- Retention `24h` (`MaxAge`), limits `MaxMsgs=1_000_000`, `MaxBytes=512MB`
+- Consumers: `AckWait=30s`, `MaxDeliver=5`, backoff `1s, 5s, 15s, 30s, 1m`
 
 ## Protobuf Compilation
 
@@ -59,6 +69,7 @@ Useful endpoints:
 - Grafana: `http://localhost:3000` (admin/admin)
 - Tempo API: `http://localhost:3200`
 - Loki API: `http://localhost:3100`
+- gRPC entrypoint (Envoy): `localhost:50051`
 
 ## Kubernetes Deployment
 

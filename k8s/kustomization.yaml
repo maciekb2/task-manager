@@ -6,6 +6,7 @@ namespace: taskmanager
 resources:
   - namespace.yaml
   - redis.yaml
+  - nats.yaml
   - otel-collector.yaml
   - tempo.yaml
   - loki.yaml
@@ -33,6 +34,9 @@ configMapGenerator:
   - name: promtail-config
     files:
       - promtail-config.yaml=../configs/promtail-k8s.yaml
+  - name: nats-config
+    files:
+      - nats.conf=../configs/nats.conf
   - name: grafana-datasources
     files:
       - loki.yaml=../configs/grafana/provisioning/datasources/loki.yaml
@@ -49,3 +53,4 @@ configMapGenerator:
       - taskmanager-pipeline-traces.json=../configs/grafana/dashboards/taskmanager-pipeline-traces.json
       - taskmanager-pipeline-latency.json=../configs/grafana/dashboards/taskmanager-pipeline-latency.json
       - otel-collector-health.json=../configs/grafana/dashboards/otel-collector-health.json
+      - nats-jetstream.json=../configs/grafana/dashboards/nats-jetstream.json
