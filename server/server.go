@@ -141,12 +141,20 @@ func (s *server) processTasks(ctx context.Context) {
 	}
 }
 
-func (s *server) updateTaskStatus(ctx context.Context, taskID, status string) {
+func (s *server) notifySubscriber(taskID, status string) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if ch, ok := s.subscribers[taskID]; ok {
 		ch <- status
+		if status == "COMPLETED" || status == "FAILED" {
+			close(ch)
+			delete(s.subscribers, taskID)
+		}
 	}
-	s.mu.Unlock()
+}
+
+func (s *server) updateTaskStatus(ctx context.Context, taskID, status string) {
+	s.notifySubscriber(taskID, status)
 
 	// Aktualizacja statusu w Redisie
 	if err := s.rdb.HSet(ctx, "task_status:"+taskID, "status", status).Err(); err != nil {
