@@ -32,7 +32,7 @@ func main() {
 		number2 := generateNumber2()
 		description := randomTaskDescription()
 		priority := randomPriority()
-		sendTaskWithNumbers(client, description, priority, number1, number2)
+		go sendTaskWithNumbers(client, description, priority, number1, number2)
 		// Opóźnienie między wysyłaniem kolejnych zadań
 		time.Sleep(1 * time.Second)
 	}
