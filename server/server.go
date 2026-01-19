@@ -79,6 +79,8 @@ func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskR
 		return nil, fmt.Errorf("could not add task to queue: %v", err)
 	}
 
+	tasksCreated.WithLabelValues(req.Priority.String()).Inc()
+
 	return &pb.TaskResponse{TaskId: taskID}, nil
 }
 
@@ -135,6 +137,9 @@ func (s *server) processTasks(ctx context.Context) {
 
 		taskID := tasks[0].Member.(string)
 
+		activeWorkers.Inc()
+		start := time.Now()
+
 		// Aktualizacja statusu na IN_PROGRESS
 		s.updateTaskStatus(ctx, taskID, "IN_PROGRESS")
 		time.Sleep(5 * time.Second) // Symulacja przetwarzania
@@ -142,9 +147,14 @@ func (s *server) processTasks(ctx context.Context) {
 		// Symulacja sukcesu lub porażki
 		if rand.Float32() < 0.8 {
 			s.updateTaskStatus(ctx, taskID, "COMPLETED")
+			tasksProcessed.WithLabelValues("success").Inc()
 		} else {
 			s.updateTaskStatus(ctx, taskID, "FAILED")
+			tasksProcessed.WithLabelValues("failed").Inc()
 		}
+
+		taskProcessingDuration.Observe(time.Since(start).Seconds())
+		activeWorkers.Dec()
 	}
 }
 
