@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/google/uuid"
 	pb "github.com/maciekb2/task-manager/proto"
 
 	"google.golang.org/grpc"
@@ -44,7 +45,7 @@ func newServer() *server {
 }
 
 func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskResponse, error) {
-	taskID := fmt.Sprintf("%d", rand.Int())
+	taskID := uuid.NewString()
 	newTask := &task{
 		id:          taskID,
 		description: req.TaskDescription,
