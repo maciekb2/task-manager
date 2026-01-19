@@ -9,10 +9,13 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/google/uuid"
 	pb "github.com/maciekb2/task-manager/proto"
 
 	"google.golang.org/grpc"
@@ -32,9 +35,9 @@ type server struct {
 	subscribers map[string]chan string
 }
 
-func newServer() *server {
+func newServer(redisAddr string) *server {
 	rdb := redis.NewClient(&redis.Options{
-		Addr: "redis-service:6379", // Adres usługi Redis w Kubernetes
+		Addr: redisAddr,
 	})
 
 	return &server{
@@ -44,7 +47,7 @@ func newServer() *server {
 }
 
 func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskResponse, error) {
-	taskID := fmt.Sprintf("%d", rand.Int())
+	taskID := uuid.NewString()
 	newTask := &task{
 		id:          taskID,
 		description: req.TaskDescription,
@@ -56,7 +59,7 @@ func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskR
 	if err := s.rdb.HSet(ctx, "task:"+taskID, map[string]interface{}{
 		"id":          newTask.id,
 		"description": newTask.description,
-		"priority":    newTask.priority,
+		"priority":    int32(newTask.priority),
 		"status":      newTask.status,
 	}).Err(); err != nil {
 		return nil, fmt.Errorf("could not store task: %v", err)
@@ -76,8 +79,6 @@ func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskR
 		return nil, fmt.Errorf("could not add task to queue: %v", err)
 	}
 
-	go s.processTasks(ctx) // Uruchamianie przetwarzania zadań
-
 	return &pb.TaskResponse{TaskId: taskID}, nil
 }
 
@@ -89,6 +90,12 @@ func (s *server) CheckTaskStatus(ctx context.Context, req *pb.StatusRequest) (*p
 	}
 
 	return &pb.StatusResponse{Status: status}, nil
+}
+
+func (s *server) StartWorkers(ctx context.Context, count int) {
+	for i := 0; i < count; i++ {
+		go s.processTasks(ctx)
+	}
 }
 
 func (s *server) StreamTaskStatus(req *pb.StatusRequest, stream pb.TaskManager_StreamTaskStatusServer) error {
@@ -154,7 +161,19 @@ func (s *server) notifySubscriber(taskID, status string) {
 }
 
 func (s *server) updateTaskStatus(ctx context.Context, taskID, status string) {
-	s.notifySubscriber(taskID, status)
+	var ch chan string
+	var ok bool
+	s.mu.Lock()
+	ch, ok = s.subscribers[taskID]
+	s.mu.Unlock()
+
+	if ok {
+		select {
+		case ch <- status:
+		default:
+			log.Printf("subscriber channel for task %s is full, dropping status update", taskID)
+		}
+	}
 
 	// Aktualizacja statusu w Redisie
 	if err := s.rdb.HSet(ctx, "task_status:"+taskID, "status", status).Err(); err != nil {
@@ -176,7 +195,16 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer(serverOpts()...)
-	pb.RegisterTaskManagerServer(grpcServer, newServer())
+	srv := newServer("redis-service:6379")
+
+	workerCount := 5
+	if countStr := os.Getenv("WORKER_COUNT"); countStr != "" {
+		if count, err := strconv.Atoi(countStr); err == nil && count > 0 {
+			workerCount = count
+		}
+	}
+	srv.StartWorkers(ctx, workerCount)
+	pb.RegisterTaskManagerServer(grpcServer, srv)
 
 	log.Println("Serwer gRPC działa na porcie :50051")
 	if err := grpcServer.Serve(lis); err != nil {
