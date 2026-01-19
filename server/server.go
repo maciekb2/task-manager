@@ -31,6 +31,7 @@ type task struct {
 type server struct {
 	pb.UnimplementedTaskManagerServer
 	rdb         *redis.Client
+	queue       TaskQueue
 	mu          sync.Mutex
 	subscribers map[string]chan string
 }
@@ -42,6 +43,7 @@ func newServer(redisAddr string) *server {
 
 	return &server{
 		rdb:         rdb,
+		queue:       NewRedisQueue(rdb),
 		subscribers: make(map[string]chan string),
 	}
 }
@@ -71,11 +73,8 @@ func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskR
 	}
 	s.mu.Unlock()
 
-	// Dodawanie zadania do kolejki Redis
-	if err := s.rdb.ZAdd(ctx, "tasks", &redis.Z{
-		Score:  float64(req.Priority), // Priorytet jako score
-		Member: taskID,
-	}).Err(); err != nil {
+	// Dodawanie zadania do kolejki
+	if err := s.queue.Push(ctx, taskID, int(req.Priority)); err != nil {
 		return nil, fmt.Errorf("could not add task to queue: %v", err)
 	}
 
@@ -120,20 +119,17 @@ func (s *server) StreamTaskStatus(req *pb.StatusRequest, stream pb.TaskManager_S
 
 func (s *server) processTasks(ctx context.Context) {
 	for {
-		// Pobieranie zadania o najwyższym priorytecie z kolejki Redis
-		tasks, err := s.rdb.ZPopMax(ctx, "tasks", 1).Result()
+		// Pobieranie zadania z kolejki
+		taskID, err := s.queue.Pop(ctx)
 		if err != nil {
+			// Sprawdzenie czy kontekst nie został anulowany
+			if ctx.Err() != nil {
+				return
+			}
 			log.Printf("Could not get task from queue: %v", err)
 			time.Sleep(1 * time.Second) // Odczekanie przed ponowną próbą
 			continue
 		}
-
-		if len(tasks) == 0 {
-			time.Sleep(1 * time.Second) // Odczekanie, jeśli kolejka jest pusta
-			continue
-		}
-
-		taskID := tasks[0].Member.(string)
 
 		// Aktualizacja statusu na IN_PROGRESS
 		s.updateTaskStatus(ctx, taskID, "IN_PROGRESS")
