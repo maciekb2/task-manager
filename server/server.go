@@ -149,11 +149,19 @@ func (s *server) processTasks(ctx context.Context) {
 }
 
 func (s *server) updateTaskStatus(ctx context.Context, taskID, status string) {
+	var ch chan string
+	var ok bool
 	s.mu.Lock()
-	if ch, ok := s.subscribers[taskID]; ok {
-		ch <- status
-	}
+	ch, ok = s.subscribers[taskID]
 	s.mu.Unlock()
+
+	if ok {
+		select {
+		case ch <- status:
+		default:
+			log.Printf("subscriber channel for task %s is full, dropping status update", taskID)
+		}
+	}
 
 	// Aktualizacja statusu w Redisie
 	if err := s.rdb.HSet(ctx, "task_status:"+taskID, "status", status).Err(); err != nil {
