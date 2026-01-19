@@ -1,8 +1,7 @@
 package main
 
 import (
-	"testing"
-  "context"
+	"context"
 	"fmt"
 	"runtime"
 	"testing"
@@ -30,8 +29,9 @@ func TestMemoryLeak(t *testing.T) {
 
 	if exists {
 		t.Fatalf("Memory leak detected: subscriber for task %s was not removed", taskID)
+	}
 }
-  
+
 func TestUnboundedGoroutines(t *testing.T) {
 	// Start miniredis
 	mr, err := miniredis.Run()

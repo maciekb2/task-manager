@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  redis-service:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - task-net
+
+  tempo:
+    image: grafana/tempo:latest
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./configs/tempo-compose.yaml:/etc/tempo.yaml
+    ports:
+      - "3200:3200" # Tempo HTTP
+      - "4317:4317" # OTLP gRPC
+    networks:
+      - task-net
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./configs/prometheus-compose.yaml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - task-net
+
+  taskmanager-service:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "50051:50051"
+      - "2222:2222"
+    environment:
+      - WORKER_COUNT=5
+      # Environment variables for hardcoded values (if the code supported them,
+      # but currently we rely on service names matching the code's expectations)
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+    depends_on:
+      - redis-service
+      - tempo
+    networks:
+      - task-net
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+    depends_on:
+      - taskmanager-service
+    networks:
+      - task-net
+
+networks:
+  task-net:
