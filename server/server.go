@@ -148,6 +148,18 @@ func (s *server) processTasks(ctx context.Context) {
 	}
 }
 
+func (s *server) notifySubscriber(taskID, status string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ch, ok := s.subscribers[taskID]; ok {
+		ch <- status
+		if status == "COMPLETED" || status == "FAILED" {
+			close(ch)
+			delete(s.subscribers, taskID)
+		}
+	}
+}
+
 func (s *server) updateTaskStatus(ctx context.Context, taskID, status string) {
 	var ch chan string
 	var ok bool
