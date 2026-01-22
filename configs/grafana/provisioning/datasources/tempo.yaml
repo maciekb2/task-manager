@@ -7,3 +7,8 @@ datasources:
     url: http://tempo:3200
     uid: tempo
     editable: false
+    jsonData:
+      serviceMap:
+        datasourceUid: 'prometheus'
+      nodeGraph:
+        enabled: true

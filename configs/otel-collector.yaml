@@ -15,6 +15,11 @@ connectors:
       - name: message.subject
       - name: message.stream
       - name: message.consumer
+  servicegraph:
+    dimensions:
+      - name: message.subject
+      - name: message.stream
+      - name: message.consumer
 
 processors:
   batch:
@@ -36,7 +41,7 @@ service:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp, spanmetrics]
+      exporters: [otlp, spanmetrics, servicegraph]
     metrics:
-      receivers: [spanmetrics]
+      receivers: [spanmetrics, servicegraph]
       exporters: [prometheus]
