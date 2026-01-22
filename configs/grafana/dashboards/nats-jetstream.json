@@ -19,7 +19,7 @@
       },
       "targets": [
         {
-          "expr": "sum(nats_varz_connections) or sum(gnatsd_varz_connections)",
+          "expr": "sum(gnatsd_varz_connections)",
           "refId": "A"
         }
       ],
@@ -39,7 +39,7 @@
       },
       "targets": [
         {
-          "expr": "sum(nats_varz_subscriptions) or sum(gnatsd_varz_subscriptions)",
+          "expr": "sum(gnatsd_varz_subscriptions)",
           "refId": "A"
         }
       ],
@@ -59,7 +59,7 @@
       },
       "targets": [
         {
-          "expr": "sum(nats_jetstream_streams) or sum(gnatsd_jetstream_streams)",
+          "expr": "sum(jetstream_server_total_streams)",
           "refId": "A"
         }
       ],
@@ -79,7 +79,7 @@
       },
       "targets": [
         {
-          "expr": "sum(nats_jetstream_consumers) or sum(gnatsd_jetstream_consumers)",
+          "expr": "sum(jetstream_server_total_consumers)",
           "refId": "A"
         }
       ],
@@ -92,14 +92,109 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
+        "h": 6,
+        "w": 6,
         "x": 0,
         "y": 6
       },
       "targets": [
         {
-          "expr": "sum(rate(nats_varz_in_msgs[5m])) or sum(rate(gnatsd_varz_in_msgs[5m]))",
+          "expr": "sum(jetstream_server_total_messages)",
+          "refId": "A"
+        }
+      ],
+      "title": "Messages Stored",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(jetstream_server_total_message_bytes)",
+          "refId": "A"
+        }
+      ],
+      "title": "Message Bytes Stored",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(jetstream_server_max_storage)",
+          "refId": "A"
+        }
+      ],
+      "title": "JetStream Max Storage",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(jetstream_server_max_memory)",
+          "refId": "A"
+        }
+      ],
+      "title": "JetStream Max Memory",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(gnatsd_varz_in_msgs[5m]))",
           "refId": "A"
         }
       ],
@@ -115,11 +210,11 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 6
+        "y": 12
       },
       "targets": [
         {
-          "expr": "sum(rate(nats_varz_out_msgs[5m])) or sum(rate(gnatsd_varz_out_msgs[5m]))",
+          "expr": "sum(rate(gnatsd_varz_out_msgs[5m]))",
           "refId": "A"
         }
       ],
@@ -135,15 +230,20 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 14
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        }
       },
       "targets": [
         {
-          "expr": "sum(nats_jetstream_storage_used) or sum(gnatsd_jetstream_storage_used)",
+          "expr": "sum(rate(gnatsd_varz_in_bytes[5m]))",
           "refId": "A"
         }
       ],
-      "title": "JetStream Storage Used (bytes)",
+      "title": "Inbound Bytes/s (5m)",
       "type": "timeseries"
     },
     {
@@ -155,15 +255,247 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 14
+        "y": 20
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        }
       },
       "targets": [
         {
-          "expr": "sum(nats_jetstream_memory_used) or sum(gnatsd_jetstream_memory_used)",
+          "expr": "sum(rate(gnatsd_varz_out_bytes[5m]))",
           "refId": "A"
         }
       ],
-      "title": "JetStream Memory Used (bytes)",
+      "title": "Outbound Bytes/s (5m)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(gnatsd_varz_jetstream_stats_storage)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(gnatsd_varz_jetstream_stats_reserved_storage)",
+          "refId": "B"
+        }
+      ],
+      "title": "JetStream Storage (used vs reserved)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(gnatsd_varz_jetstream_stats_memory)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(gnatsd_varz_jetstream_stats_reserved_memory)",
+          "refId": "B"
+        }
+      ],
+      "title": "JetStream Memory (used vs reserved)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 36
+      },
+      "targets": [
+        {
+          "expr": "sum by (stream_name) (jetstream_stream_total_messages)",
+          "refId": "A"
+        }
+      ],
+      "title": "Stream Messages by Stream",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 36
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (stream_name) (jetstream_stream_total_bytes)",
+          "refId": "A"
+        }
+      ],
+      "title": "Stream Bytes by Stream",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 45
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_name, stream_name) (jetstream_consumer_num_pending)",
+          "refId": "A"
+        }
+      ],
+      "title": "Consumer Pending by Consumer",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 45
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_name, stream_name) (jetstream_consumer_num_ack_pending)",
+          "refId": "A"
+        }
+      ],
+      "title": "Consumer Ack Pending by Consumer",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 54
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_name, stream_name) (jetstream_consumer_num_redelivered)",
+          "refId": "A"
+        }
+      ],
+      "title": "Consumer Redelivered by Consumer",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 54
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_name, stream_name) (jetstream_consumer_num_waiting)",
+          "refId": "A"
+        }
+      ],
+      "title": "Consumer Waiting Pulls by Consumer",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 63
+      },
+      "targets": [
+        {
+          "expr": "sum(gnatsd_varz_jetstream_stats_api_total)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(gnatsd_varz_jetstream_stats_api_errors)",
+          "refId": "B"
+        }
+      ],
+      "title": "JetStream API Calls (total/errors)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 63
+      },
+      "targets": [
+        {
+          "expr": "sum by (consumer_name, stream_name) (jetstream_consumer_delivered_stream_seq - jetstream_consumer_ack_floor_stream_seq)",
+          "refId": "A"
+        }
+      ],
+      "title": "Consumer Lag (stream seq - ack floor)",
       "type": "timeseries"
     }
   ],
@@ -174,5 +506,5 @@
   },
   "title": "NATS JetStream",
   "uid": "nats-jetstream",
-  "version": 1
+  "version": 2
 }

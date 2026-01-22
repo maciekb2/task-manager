@@ -13,17 +13,196 @@
       },
       "gridPos": {
         "h": 6,
-        "w": 8,
+        "w": 6,
         "x": 0,
         "y": 0
       },
       "targets": [
         {
-          "expr": "sum(rate(envoy_cluster_upstream_rq_total{cluster_name=~\"$cluster\"}[1m]))",
+          "expr": "sum(rate(envoy_http_downstream_rq_total{envoy_http_conn_manager_prefix=~\"$conn_mgr\"}[1m]))",
           "refId": "A"
         }
       ],
-      "title": "Requests/s",
+      "title": "Downstream RPS (total)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(envoy_cluster_upstream_rq_total{envoy_cluster_name=~\"$cluster\"}[1m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream RPS (total)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "100 * sum(rate(envoy_http_downstream_rq_xx{envoy_http_conn_manager_prefix=~\"$conn_mgr\",envoy_response_code_class=\"5\"}[5m])) / sum(rate(envoy_http_downstream_rq_total{envoy_http_conn_manager_prefix=~\"$conn_mgr\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Downstream 5xx Rate (%)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "100 * sum(rate(envoy_http_downstream_rq_grpc_status{envoy_http_conn_manager_prefix=~\"$conn_mgr\",grpc_status!=\"0\"}[5m])) / sum(rate(envoy_http_downstream_rq_grpc_status{envoy_http_conn_manager_prefix=~\"$conn_mgr\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "gRPC Error Rate (non-OK %)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(envoy_http_downstream_cx_active{envoy_http_conn_manager_prefix=~\"$conn_mgr\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "Downstream Active Conns",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(envoy_cluster_upstream_cx_active{envoy_cluster_name=~\"$cluster\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream Active Conns",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(envoy_cluster_http2_streams_active{envoy_cluster_name=~\"$cluster\"}) + sum(envoy_http_downstream_cx_http2_active{envoy_http_conn_manager_prefix=~\"$conn_mgr\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "HTTP2 Streams Active (total)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 6
+      },
+      "targets": [
+        {
+          "expr": "(sum(envoy_cluster_membership_healthy{envoy_cluster_name=~\"$cluster\"}) / sum(envoy_cluster_membership_total{envoy_cluster_name=~\"$cluster\"})) * 100",
+          "refId": "A"
+        }
+      ],
+      "title": "Cluster Healthy (%)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 12
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_http_conn_manager_prefix) (rate(envoy_http_downstream_rq_total{envoy_http_conn_manager_prefix=~\"$conn_mgr\"}[1m]))",
+          "legendFormat": "{{envoy_http_conn_manager_prefix}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Downstream Requests/s",
       "type": "timeseries"
     },
     {
@@ -35,15 +214,16 @@
         "h": 6,
         "w": 8,
         "x": 8,
-        "y": 0
+        "y": 12
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(envoy_cluster_upstream_rq_time_bucket{cluster_name=~\"$cluster\"}[5m])))",
+          "expr": "sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total{envoy_cluster_name=~\"$cluster\"}[1m]))",
+          "legendFormat": "{{envoy_cluster_name}}",
           "refId": "A"
         }
       ],
-      "title": "Upstream p95 Latency (ms)",
+      "title": "Upstream Requests/s",
       "type": "timeseries"
     },
     {
@@ -55,11 +235,252 @@
         "h": 6,
         "w": 8,
         "x": 16,
-        "y": 0
+        "y": 12
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(envoy_cluster_upstream_rq_time_bucket{cluster_name=~\"$cluster\"}[5m])))",
+          "expr": "sum by (envoy_response_code_class) (rate(envoy_http_downstream_rq_xx{envoy_http_conn_manager_prefix=~\"$conn_mgr\"}[5m]))",
+          "legendFormat": "{{envoy_response_code_class}}xx",
+          "refId": "A"
+        }
+      ],
+      "title": "Downstream Response Classes/s",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 18
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(envoy_http_downstream_rq_grpc_status{envoy_http_conn_manager_prefix=~\"$conn_mgr\",grpc_status=\"0\"}[5m]))",
+          "legendFormat": "OK",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(envoy_http_downstream_rq_grpc_status{envoy_http_conn_manager_prefix=~\"$conn_mgr\",grpc_status=\"4\"}[5m]))",
+          "legendFormat": "DEADLINE_EXCEEDED",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(envoy_http_downstream_rq_grpc_status{envoy_http_conn_manager_prefix=~\"$conn_mgr\",grpc_status=\"14\"}[5m]))",
+          "legendFormat": "UNAVAILABLE",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(envoy_http_downstream_rq_grpc_status{envoy_http_conn_manager_prefix=~\"$conn_mgr\",grpc_status!~\"0|4|14\"}[5m]))",
+          "legendFormat": "other",
+          "refId": "D"
+        }
+      ],
+      "title": "Downstream gRPC Status/s",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 18
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_http_conn_manager_prefix) (envoy_http_downstream_rq_active{envoy_http_conn_manager_prefix=~\"$conn_mgr\"})",
+          "legendFormat": "{{envoy_http_conn_manager_prefix}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Downstream Active Requests",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 18
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_cluster_name) (envoy_cluster_upstream_rq_active{envoy_cluster_name=~\"$cluster\"})",
+          "legendFormat": "{{envoy_cluster_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream Active Requests",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, envoy_http_conn_manager_prefix) (rate(envoy_http_downstream_rq_time_bucket{envoy_http_conn_manager_prefix=~\"$conn_mgr\"}[5m])))",
+          "legendFormat": "{{envoy_http_conn_manager_prefix}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Downstream p95 Latency (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, envoy_http_conn_manager_prefix) (rate(envoy_http_downstream_rq_time_bucket{envoy_http_conn_manager_prefix=~\"$conn_mgr\"}[5m])))",
+          "legendFormat": "{{envoy_http_conn_manager_prefix}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Downstream p99 Latency (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_http_conn_manager_prefix) (rate(envoy_http_downstream_rq_time_sum{envoy_http_conn_manager_prefix=~\"$conn_mgr\"}[5m])) / sum by (envoy_http_conn_manager_prefix) (rate(envoy_http_downstream_rq_time_count{envoy_http_conn_manager_prefix=~\"$conn_mgr\"}[5m]))",
+          "legendFormat": "{{envoy_http_conn_manager_prefix}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Downstream Avg Latency (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 30
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_time_bucket{envoy_cluster_name=~\"$cluster\"}[5m])))",
+          "legendFormat": "{{envoy_cluster_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream p50 Latency (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 30
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_time_bucket{envoy_cluster_name=~\"$cluster\"}[5m])))",
+          "legendFormat": "{{envoy_cluster_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream p95 Latency (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 30
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_time_bucket{envoy_cluster_name=~\"$cluster\"}[5m])))",
+          "legendFormat": "{{envoy_cluster_name}}",
           "refId": "A"
         }
       ],
@@ -71,19 +492,80 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
       "gridPos": {
-        "h": 7,
-        "w": 12,
+        "h": 6,
+        "w": 8,
         "x": 0,
-        "y": 6
+        "y": 36
       },
       "targets": [
         {
-          "expr": "sum(rate(envoy_cluster_upstream_rq_time_sum{cluster_name=~\"$cluster\"}[5m])) / sum(rate(envoy_cluster_upstream_rq_time_count{cluster_name=~\"$cluster\"}[5m]))",
+          "expr": "sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_time_sum{envoy_cluster_name=~\"$cluster\"}[5m])) / sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_time_count{envoy_cluster_name=~\"$cluster\"}[5m]))",
+          "legendFormat": "{{envoy_cluster_name}}",
           "refId": "A"
         }
       ],
-      "title": "Average Upstream Latency (ms)",
+      "title": "Upstream Avg Latency (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 36
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, envoy_cluster_name) (rate(envoy_cluster_external_upstream_rq_time_bucket{envoy_cluster_name=~\"$cluster\"}[5m])))",
+          "legendFormat": "{{envoy_cluster_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "External Upstream p95 Latency (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 36
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_cluster_name) (rate(envoy_cluster_external_upstream_rq_time_sum{envoy_cluster_name=~\"$cluster\"}[5m])) / sum by (envoy_cluster_name) (rate(envoy_cluster_external_upstream_rq_time_count{envoy_cluster_name=~\"$cluster\"}[5m]))",
+          "legendFormat": "{{envoy_cluster_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "External Upstream Avg Latency (ms)",
       "type": "timeseries"
     },
     {
@@ -92,14 +574,177 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 12,
-        "y": 6
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 42
       },
       "targets": [
         {
-          "expr": "sum(envoy_cluster_upstream_cx_active{cluster_name=~\"$cluster\"})",
+          "expr": "sum by (envoy_http_conn_manager_prefix) (rate(envoy_http_downstream_rq_timeout{envoy_http_conn_manager_prefix=~\"$conn_mgr\"}[5m]))",
+          "legendFormat": "{{envoy_http_conn_manager_prefix}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Downstream Timeouts/s",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 42
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_http_conn_manager_prefix) (rate(envoy_http_downstream_rq_rx_reset{envoy_http_conn_manager_prefix=~\"$conn_mgr\"}[5m]))",
+          "legendFormat": "rx_reset {{envoy_http_conn_manager_prefix}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (envoy_http_conn_manager_prefix) (rate(envoy_http_downstream_rq_tx_reset{envoy_http_conn_manager_prefix=~\"$conn_mgr\"}[5m]))",
+          "legendFormat": "tx_reset {{envoy_http_conn_manager_prefix}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Downstream Resets/s",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 42
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_rx_reset{envoy_cluster_name=~\"$cluster\"}[5m]))",
+          "legendFormat": "rx_reset {{envoy_cluster_name}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_tx_reset{envoy_cluster_name=~\"$cluster\"}[5m]))",
+          "legendFormat": "tx_reset {{envoy_cluster_name}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Upstream Resets/s",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 48
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_retry{envoy_cluster_name=~\"$cluster\"}[5m]))",
+          "legendFormat": "{{envoy_cluster_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream Retries/s",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 48
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_retry_success{envoy_cluster_name=~\"$cluster\"}[5m]))",
+          "legendFormat": "{{envoy_cluster_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream Retry Success/s",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 48
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_http_conn_manager_prefix) (rate(envoy_http_no_route{envoy_http_conn_manager_prefix=~\"$conn_mgr\"}[5m]))",
+          "legendFormat": "no_route {{envoy_http_conn_manager_prefix}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (envoy_http_conn_manager_prefix) (rate(envoy_http_no_cluster{envoy_http_conn_manager_prefix=~\"$conn_mgr\"}[5m]))",
+          "legendFormat": "no_cluster {{envoy_http_conn_manager_prefix}}",
+          "refId": "B"
+        }
+      ],
+      "title": "No Route / No Cluster/s",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 54
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_http_conn_manager_prefix) (envoy_http_downstream_cx_active{envoy_http_conn_manager_prefix=~\"$conn_mgr\"})",
+          "legendFormat": "{{envoy_http_conn_manager_prefix}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Downstream Active Connections",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 54
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_cluster_name) (envoy_cluster_upstream_cx_active{envoy_cluster_name=~\"$cluster\"})",
+          "legendFormat": "{{envoy_cluster_name}}",
           "refId": "A"
         }
       ],
@@ -112,18 +757,105 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 0,
-        "y": 13
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 54
       },
       "targets": [
         {
-          "expr": "sum(rate(envoy_cluster_upstream_rq_rx_reset{cluster_name=~\"$cluster\"}[5m]))",
+          "expr": "sum by (envoy_listener_address) (envoy_listener_downstream_cx_active)",
+          "legendFormat": "{{envoy_listener_address}}",
           "refId": "A"
         }
       ],
-      "title": "Upstream Resets/s",
+      "title": "Listener Downstream Connections",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 60
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_cx_rx_bytes_total{envoy_cluster_name=~\"$cluster\"}[5m]))",
+          "legendFormat": "{{envoy_cluster_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream Request Bytes/s",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 60
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_cx_tx_bytes_total{envoy_cluster_name=~\"$cluster\"}[5m]))",
+          "legendFormat": "{{envoy_cluster_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream Response Bytes/s",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 60
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_http_conn_manager_prefix) (envoy_http_downstream_cx_rx_bytes_buffered{envoy_http_conn_manager_prefix=~\"$conn_mgr\"})",
+          "legendFormat": "rx_buffered {{envoy_http_conn_manager_prefix}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (envoy_http_conn_manager_prefix) (envoy_http_downstream_cx_tx_bytes_buffered{envoy_http_conn_manager_prefix=~\"$conn_mgr\"})",
+          "legendFormat": "tx_buffered {{envoy_http_conn_manager_prefix}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Downstream Buffered Bytes",
       "type": "timeseries"
     },
     {
@@ -132,18 +864,321 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 12,
-        "y": 13
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 66
       },
       "targets": [
         {
-          "expr": "sum(envoy_http_downstream_cx_active)",
+          "expr": "sum by (envoy_cluster_name) (envoy_cluster_circuit_breakers_default_rq_open{envoy_cluster_name=~\"$cluster\"})",
+          "legendFormat": "default_rq {{envoy_cluster_name}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (envoy_cluster_name) (envoy_cluster_circuit_breakers_default_cx_open{envoy_cluster_name=~\"$cluster\"})",
+          "legendFormat": "default_cx {{envoy_cluster_name}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum by (envoy_cluster_name) (envoy_cluster_circuit_breakers_high_rq_open{envoy_cluster_name=~\"$cluster\"})",
+          "legendFormat": "high_rq {{envoy_cluster_name}}",
+          "refId": "C"
+        },
+        {
+          "expr": "sum by (envoy_cluster_name) (envoy_cluster_circuit_breakers_high_cx_open{envoy_cluster_name=~\"$cluster\"})",
+          "legendFormat": "high_cx {{envoy_cluster_name}}",
+          "refId": "D"
+        }
+      ],
+      "title": "Circuit Breakers Open",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 66
+      },
+      "targets": [
+        {
+          "expr": "(sum(envoy_cluster_membership_healthy{envoy_cluster_name=~\"$cluster\"}) / sum(envoy_cluster_membership_total{envoy_cluster_name=~\"$cluster\"})) * 100",
           "refId": "A"
         }
       ],
-      "title": "Downstream Active Connections",
+      "title": "Cluster Healthy %",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 66
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_cluster_name) (envoy_cluster_http2_streams_active{envoy_cluster_name=~\"$cluster\"})",
+          "legendFormat": "upstream {{envoy_cluster_name}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (envoy_http_conn_manager_prefix) (envoy_http_downstream_cx_http2_active{envoy_http_conn_manager_prefix=~\"$conn_mgr\"})",
+          "legendFormat": "downstream {{envoy_http_conn_manager_prefix}}",
+          "refId": "B"
+        }
+      ],
+      "title": "HTTP2 Streams Active",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 72
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, envoy_cluster_name) (rate(envoy_cluster_upstream_cx_connect_ms_bucket{envoy_cluster_name=~\"$cluster\"}[5m])))",
+          "legendFormat": "{{envoy_cluster_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream Connect p95 (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 72
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, envoy_cluster_name) (rate(envoy_cluster_upstream_cx_connect_ms_bucket{envoy_cluster_name=~\"$cluster\"}[5m])))",
+          "legendFormat": "{{envoy_cluster_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream Connect p99 (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 72
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_cx_connect_ms_sum{envoy_cluster_name=~\"$cluster\"}[5m])) / sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_cx_connect_ms_count{envoy_cluster_name=~\"$cluster\"}[5m]))",
+          "legendFormat": "{{envoy_cluster_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream Connect Avg (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 78
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, envoy_cluster_name) (rate(envoy_cluster_upstream_cx_length_ms_bucket{envoy_cluster_name=~\"$cluster\"}[5m])))",
+          "legendFormat": "{{envoy_cluster_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream Conn Length p50 (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 78
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, envoy_cluster_name) (rate(envoy_cluster_upstream_cx_length_ms_bucket{envoy_cluster_name=~\"$cluster\"}[5m])))",
+          "legendFormat": "{{envoy_cluster_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream Conn Length p95 (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 78
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_cx_length_ms_sum{envoy_cluster_name=~\"$cluster\"}[5m])) / sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_cx_length_ms_count{envoy_cluster_name=~\"$cluster\"}[5m]))",
+          "legendFormat": "{{envoy_cluster_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream Conn Length Avg (ms)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 84
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_http_conn_manager_prefix) (envoy_http_downstream_cx_http1_active{envoy_http_conn_manager_prefix=~\"$conn_mgr\"})",
+          "legendFormat": "http1 {{envoy_http_conn_manager_prefix}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (envoy_http_conn_manager_prefix) (envoy_http_downstream_cx_http2_active{envoy_http_conn_manager_prefix=~\"$conn_mgr\"})",
+          "legendFormat": "http2 {{envoy_http_conn_manager_prefix}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Downstream HTTP1 vs HTTP2 Active",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 84
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_cluster_name) (envoy_cluster_upstream_rq_pending_active{envoy_cluster_name=~\"$cluster\"})",
+          "legendFormat": "{{envoy_cluster_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream Pending Requests",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 84
+      },
+      "targets": [
+        {
+          "expr": "sum by (envoy_cluster_name) (envoy_cluster_circuit_breakers_default_cx_pool_open{envoy_cluster_name=~\"$cluster\"})",
+          "legendFormat": "default {{envoy_cluster_name}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (envoy_cluster_name) (envoy_cluster_circuit_breakers_high_cx_pool_open{envoy_cluster_name=~\"$cluster\"})",
+          "legendFormat": "high {{envoy_cluster_name}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Circuit Breaker Pool Open",
       "type": "timeseries"
     }
   ],
@@ -159,11 +1194,29 @@
           "uid": "prometheus"
         },
         "refresh": 1,
-        "query": "label_values(envoy_cluster_upstream_rq_total, cluster_name)",
+        "query": "label_values(envoy_cluster_upstream_rq_time_bucket, envoy_cluster_name)",
         "current": {
           "selected": true,
           "text": "taskmanager_service",
           "value": "taskmanager_service"
+        },
+        "includeAll": true,
+        "allValue": ".*"
+      },
+      {
+        "name": "conn_mgr",
+        "type": "query",
+        "label": "Conn Manager",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "refresh": 1,
+        "query": "label_values(envoy_http_downstream_rq_total, envoy_http_conn_manager_prefix)",
+        "current": {
+          "selected": true,
+          "text": "ingress_grpc",
+          "value": "ingress_grpc"
         },
         "includeAll": true,
         "allValue": ".*"
@@ -176,5 +1229,5 @@
   },
   "title": "Envoy gRPC Gateway",
   "uid": "envoy-grpc-gateway",
-  "version": 1
+  "version": 3
 }

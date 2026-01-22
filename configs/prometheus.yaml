@@ -15,7 +15,7 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets:
-          - nats:8222
+          - nats-exporter:7777
   - job_name: envoy
     metrics_path: /stats/prometheus
     static_configs:

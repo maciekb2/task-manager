@@ -108,6 +108,17 @@ services:
     networks:
       - taskmanager-net
 
+  nats-exporter:
+    image: natsio/prometheus-nats-exporter:0.15.0
+    command: ["-varz", "-connz", "-subz", "-jsz=all", "-serverz", "http://nats:8222"]
+    restart: unless-stopped
+    ports:
+      - "7777:7777"
+    depends_on:
+      - nats
+    networks:
+      - taskmanager-net
+
   envoy:
     image: envoyproxy/envoy:v1.30.2
     command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
