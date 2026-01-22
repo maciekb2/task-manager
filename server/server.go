@@ -39,6 +39,9 @@ func newServer(rdb *redis.Client, busClient *bus.Client) *server {
 }
 
 func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskResponse, error) {
+	start := time.Now()
+	defer func() { taskIngestionDuration.Observe(time.Since(start).Seconds()) }()
+
 	traceParent := traceparentFromContext(ctx)
 	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
 	idempotencyRedisKey := ""
@@ -134,6 +137,8 @@ func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskR
 	}); err != nil {
 		log.Printf("Could not enqueue audit event: %v", err)
 	}
+
+	tasksReceived.WithLabelValues(fmt.Sprintf("%d", req.Priority)).Inc()
 
 	return &pb.TaskResponse{TaskId: taskID}, nil
 }
