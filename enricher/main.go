@@ -15,8 +15,8 @@ import (
 type enrichRequest struct {
 	TaskDescription string `json:"task_description"`
 	Priority        int32  `json:"priority"`
-	Number1         int32  `json:"number1"`
-	Number2         int32  `json:"number2"`
+	URL             string `json:"url"`
+	Method          string `json:"method"`
 }
 
 type enrichResponse struct {
@@ -59,8 +59,8 @@ func handleEnrich(w http.ResponseWriter, r *http.Request) {
 	}
 	span.SetAttributes(
 		attribute.Int64("task.priority", int64(req.Priority)),
-		attribute.Int64("task.number1", int64(req.Number1)),
-		attribute.Int64("task.number2", int64(req.Number2)),
+		attribute.String("task.url", req.URL),
+		attribute.String("task.method", req.Method),
 	)
 
 	category := "low"
@@ -70,7 +70,7 @@ func handleEnrich(w http.ResponseWriter, r *http.Request) {
 		category = "medium"
 	}
 
-	score := req.Number1 + req.Number2 + req.Priority*100
+	score := int32(len(req.URL)) + req.Priority*100
 	resp := enrichResponse{Category: category, Score: score}
 	span.SetAttributes(
 		attribute.String("task.category", category),
