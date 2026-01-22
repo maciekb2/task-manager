@@ -24,11 +24,11 @@ syntax = "proto3";
     // priority indicates the priority level of the task.
     TaskPriority priority = 2;
   
-    // number1 is the first number associated with the task.
-    int32 number1 = 3;
+    // url is the target URL to check.
+    string url = 3;
   
-    // number2 is the second number associated with the task.
-    int32 number2 = 4;
+    // method is the HTTP method to use (GET, POST, etc.).
+    string method = 4;
 
     // idempotency_key provides a stable key for de-duplication.
     string idempotency_key = 5;

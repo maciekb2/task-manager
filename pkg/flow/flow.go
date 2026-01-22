@@ -18,8 +18,8 @@ type TaskEnvelope struct {
 	TaskID          string `json:"task_id"`
 	TaskDescription string `json:"task_description"`
 	Priority        int32  `json:"priority"`
-	Number1         int32  `json:"number1"`
-	Number2         int32  `json:"number2"`
+	URL             string `json:"url"`
+	Method          string `json:"method"`
 	TraceParent     string `json:"traceparent,omitempty"`
 	CreatedAt       string `json:"created_at"`
 	Attempt         int    `json:"attempt"`
@@ -38,6 +38,7 @@ type StatusUpdate struct {
 type ResultEnvelope struct {
 	Task        TaskEnvelope `json:"task"`
 	Result      int32        `json:"result"`
+	LatencyMs   int64        `json:"latency_ms,omitempty"`
 	ProcessedAt string       `json:"processed_at"`
 	WorkerID    int          `json:"worker_id"`
 }

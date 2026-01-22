@@ -76,23 +76,23 @@ func connectToServer(ctx context.Context) *grpc.ClientConn {
 
 func producerLoop(client pb.TaskManagerClient, jobs <-chan struct{}, workerID int) {
 	for range jobs {
-		number1 := generateNumber1()
-		number2 := generateNumber2()
+		url := generateURL()
+		method := generateMethod()
 		description := randomTaskDescription()
 		priority := randomPriority()
-		sendTaskWithNumbers(client, workerID, description, priority, number1, number2)
+		sendTaskWithURL(client, workerID, description, priority, url, method)
 	}
 }
 
-func sendTaskWithNumbers(client pb.TaskManagerClient, workerID int, description string, priority pb.TaskPriority, number1 int, number2 int) {
+func sendTaskWithURL(client pb.TaskManagerClient, workerID int, description string, priority pb.TaskPriority, url, method string) {
 	tracer := otel.Tracer("client")
 	ctx, span := tracer.Start(context.Background(), "client.submit")
 	idempotencyKey := generateIdempotencyKey()
 	span.SetAttributes(
 		attribute.String("task.description", description),
 		attribute.Int("task.priority", int(priority)),
-		attribute.Int("task.number1", number1),
-		attribute.Int("task.number2", number2),
+		attribute.String("task.url", url),
+		attribute.String("task.method", method),
 		attribute.String("task.idempotency_key", idempotencyKey),
 		attribute.Int("producer.worker_id", workerID),
 	)
@@ -101,13 +101,13 @@ func sendTaskWithNumbers(client pb.TaskManagerClient, workerID int, description 
 	defer cancel()
 	defer span.End()
 
-	log.Printf("Wysyłanie zadania: %s z priorytetem: %s oraz liczbami: %d, %d (idempotency: %s, worker: %d)", description, priority, number1, number2, idempotencyKey, workerID)
+	log.Printf("Sending task: %s priority: %s url: %s method: %s (idempotency: %s, worker: %d)", description, priority, url, method, idempotencyKey, workerID)
 
 	res, err := client.SubmitTask(taskCtx, &pb.TaskRequest{
 		TaskDescription: description,
 		Priority:        priority,
-		Number1:         int32(number1),
-		Number2:         int32(number2),
+		Url:             url,
+		Method:          method,
 		IdempotencyKey:  idempotencyKey,
 	})
 	if err != nil {
@@ -116,7 +116,7 @@ func sendTaskWithNumbers(client pb.TaskManagerClient, workerID int, description 
 		return
 	}
 
-	log.Printf("Zadanie zostało wysłane z ID: %s (worker: %d)", res.TaskId, workerID)
+	log.Printf("Task submitted with ID: %s (worker: %d)", res.TaskId, workerID)
 	streamTaskStatus(client, res.TaskId)
 }
 
@@ -130,14 +130,14 @@ func streamTaskStatus(client pb.TaskManagerClient, taskID string) {
 		return
 	}
 
-	log.Println("Oczekiwanie na statusy...")
+	log.Println("Waiting for status...")
 	for {
 		status, err := stream.Recv()
 		if err != nil {
-			log.Printf("Stream zakończony: %v", err)
+			log.Printf("Stream ended: %v", err)
 			break
 		}
-		log.Printf("Status zadania [%s]: %s", taskID, status.Status)
+		log.Printf("Task status [%s]: %s", taskID, status.Status)
 		if status.Status == "COMPLETED" || status.Status == "FAILED" {
 			break
 		}
@@ -152,7 +152,7 @@ func serverAddr() string {
 }
 
 func randomTaskDescription() string {
-	descriptions := []string{"Task A", "Task B", "Task C", "Critical Fix", "Routine Check"}
+	descriptions := []string{"Health Check", "Latency Check", "Status Check", "API Verification", "SLA Monitoring"}
 	return descriptions[rand.Intn(len(descriptions))]
 }
 
@@ -168,12 +168,19 @@ func randomPriority() pb.TaskPriority {
 	}
 }
 
-func generateNumber1() int {
-	return rand.Intn(8096-1024) + 1024
+func generateURL() string {
+	urls := []string{
+		"https://www.google.com",
+		"https://www.github.com",
+		"https://www.stackoverflow.com",
+		"https://www.reddit.com",
+		"https://en.wikipedia.org",
+	}
+	return urls[rand.Intn(len(urls))]
 }
 
-func generateNumber2() int {
-	return rand.Intn(8096-1024) + 1024
+func generateMethod() string {
+	return "GET"
 }
 
 func generateIdempotencyKey() string {

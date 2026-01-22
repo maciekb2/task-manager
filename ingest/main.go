@@ -77,8 +77,8 @@ func main() {
 		span.SetAttributes(
 			attribute.String("task.id", task.TaskID),
 			attribute.Int64("task.priority", int64(task.Priority)),
-			attribute.Int64("task.number1", int64(task.Number1)),
-			attribute.Int64("task.number2", int64(task.Number2)),
+			attribute.String("task.url", task.URL),
+			attribute.String("task.method", task.Method),
 			attribute.String("queue.source", bus.SubjectTaskIngest),
 			attribute.String("queue.target", bus.SubjectTaskSchedule),
 		)

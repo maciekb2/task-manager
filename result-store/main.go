@@ -21,7 +21,7 @@ import (
 )
 
 const resultStoreScript = `if redis.call("EXISTS", KEYS[1]) == 1 then return 0 end
-redis.call("HSET", KEYS[1], "result", ARGV[1], "processed_at", ARGV[2], "worker_id", ARGV[3], "category", ARGV[4], "score", ARGV[5])
+redis.call("HSET", KEYS[1], "result", ARGV[1], "latency_ms", ARGV[2], "processed_at", ARGV[3], "worker_id", ARGV[4], "category", ARGV[5], "score", ARGV[6])
 return 1`
 
 type resultStoreMetrics struct {
@@ -85,6 +85,7 @@ func main() {
 			attribute.String("task.id", result.Task.TaskID),
 			attribute.Int("worker.id", result.WorkerID),
 			attribute.Int64("task.result", int64(result.Result)),
+			attribute.Int64("task.latency_ms", result.LatencyMs),
 			attribute.String("queue.source", bus.SubjectTaskResults),
 		)
 
@@ -228,6 +229,7 @@ func traceparentFromContext(ctx context.Context) string {
 func storeResultOnce(ctx context.Context, rdb *redis.Client, key string, result flow.ResultEnvelope) (bool, error) {
 	res, err := rdb.Eval(ctx, resultStoreScript, []string{key},
 		result.Result,
+		result.LatencyMs,
 		result.ProcessedAt,
 		result.WorkerID,
 		result.Task.Category,

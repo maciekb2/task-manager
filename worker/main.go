@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"math/rand"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
 	"github.com/nats-io/nats.go"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
@@ -163,11 +165,12 @@ func processLoop(ctx context.Context, busClient *bus.Client, jobs <-chan *nats.M
 			}
 			ctxTask, span := tracer.Start(parentCtx, "worker.process")
 			bus.AnnotateSpan(span, msg)
-			start := time.Now()
 			span.SetAttributes(
 				attribute.String("task.id", task.TaskID),
 				attribute.Int64("task.priority", int64(task.Priority)),
 				attribute.Int("worker.id", workerID),
+				attribute.String("task.url", task.URL),
+				attribute.String("task.method", task.Method),
 				attribute.String("queue.source", msg.Subject),
 				attribute.String("queue.target", bus.SubjectTaskResults),
 			)
@@ -182,18 +185,23 @@ func processLoop(ctx context.Context, busClient *bus.Client, jobs <-chan *nats.M
 				Timestamp:   flow.Now(),
 			})
 
-			checksum, iterations := simulateWork(task.Number1, task.Number2, task.Priority)
-			ioDelay := time.Duration(200+rand.Intn(400)) * time.Millisecond
-			time.Sleep(ioDelay)
+			statusCode, latencyMs, checkErr := performHttpCheck(ctxTask, task.URL, task.Method)
+
 			span.SetAttributes(
-				attribute.Int("task.work.iterations", iterations),
-				attribute.Int64("task.work.checksum", checksum),
-				attribute.Float64("task.processing_seconds", time.Since(start).Seconds()),
-				attribute.Float64("task.simulated_io_ms", float64(ioDelay.Milliseconds())),
+				attribute.Int("http.status_code", statusCode),
+				attribute.Int64("http.latency_ms", latencyMs),
 			)
 
+			if checkErr != nil {
+				log.Printf("worker %d: task %s http check failed: %v", workerID, task.TaskID, checkErr)
+				span.RecordError(checkErr)
+				// We don't necessarily fail the task processing in terms of NATS if the HTTP check fails (e.g. 404 or DNS error),
+				// but we might want to mark the outcome as such.
+				// However, if we want to simulate failure for the demo:
+			}
+
 			if rand.Float64() < failRate {
-				log.Printf("worker %d: task %s failed", workerID, task.TaskID)
+				log.Printf("worker %d: task %s failed (simulated)", workerID, task.TaskID)
 				span.SetAttributes(attribute.String("task.outcome", "failed"))
 				enqueueStatus(ctxTask, busClient, task, "FAILED", "worker")
 				enqueueDeadLetter(ctxTask, busClient, task, "processing failed", bus.DeliveryAttempt(msg))
@@ -203,10 +211,10 @@ func processLoop(ctx context.Context, busClient *bus.Client, jobs <-chan *nats.M
 				continue
 			}
 
-			result := int32(task.Number1 + task.Number2)
 			resultPayload := flow.ResultEnvelope{
 				Task:        task,
-				Result:      result,
+				Result:      int32(statusCode),
+				LatencyMs:   latencyMs,
 				ProcessedAt: flow.Now(),
 				WorkerID:    workerID,
 			}
@@ -221,7 +229,7 @@ func processLoop(ctx context.Context, busClient *bus.Client, jobs <-chan *nats.M
 
 			span.SetAttributes(
 				attribute.String("task.outcome", "completed"),
-				attribute.Int64("task.result", int64(result)),
+				attribute.Int("task.result", statusCode),
 			)
 			enqueueStatus(ctxTask, busClient, task, "COMPLETED", "worker")
 			enqueueAudit(ctxTask, busClient, flow.AuditEvent{
@@ -238,6 +246,31 @@ func processLoop(ctx context.Context, busClient *bus.Client, jobs <-chan *nats.M
 			span.End()
 		}
 	}
+}
+
+func performHttpCheck(ctx context.Context, url, method string) (int, int64, error) {
+	if method == "" {
+		method = "GET"
+	}
+	client := http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+		Timeout:   10 * time.Second,
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	start := time.Now()
+	resp, err := client.Do(req)
+	latency := time.Since(start).Milliseconds()
+
+	if err != nil {
+		return 0, latency, err
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode, latency, nil
 }
 
 func enqueueStatus(ctx context.Context, busClient *bus.Client, task flow.TaskEnvelope, status, source string) {
@@ -313,18 +346,6 @@ func natsURL() string {
 		return addr
 	}
 	return bus.DefaultURL
-}
-
-func simulateWork(number1, number2 int32, priority int32) (int64, int) {
-	base := int(number1+number2) % 5000
-	iterations := 5000 + base + int(priority)*1000
-	var hash uint64 = 1469598103934665603
-	for i := 0; i < iterations; i++ {
-		hash ^= uint64(number1) + uint64(number2) + uint64(i)
-		hash *= 1099511628211
-		hash ^= hash >> 32
-	}
-	return int64(hash & 0x7fffffffffffffff), iterations
 }
 
 func handleProcessingFailure(ctx context.Context, busClient *bus.Client, msg *nats.Msg, task flow.TaskEnvelope, reason string, retry bool) {

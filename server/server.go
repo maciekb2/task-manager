@@ -77,21 +77,29 @@ func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskR
 			attribute.String("task.id", taskID),
 			attribute.String("task.description", req.TaskDescription),
 			attribute.Int("task.priority", int(req.Priority)),
-			attribute.Int64("task.number1", int64(req.Number1)),
-			attribute.Int64("task.number2", int64(req.Number2)),
+			attribute.String("task.url", req.Url),
+			attribute.String("task.method", req.Method),
 			attribute.String("queue.name", bus.SubjectTaskIngest),
 			attribute.String("task.idempotency_key", idempotencyKey),
 			attribute.Bool("task.idempotency_hit", false),
 		)
 	}
+
+	if req.Url == "" {
+		return nil, fmt.Errorf("url is required")
+	}
+
 	newTask := flow.TaskEnvelope{
 		TaskID:          taskID,
 		TaskDescription: req.TaskDescription,
 		Priority:        int32(req.Priority),
-		Number1:         req.Number1,
-		Number2:         req.Number2,
+		URL:             req.Url,
+		Method:          req.Method,
 		TraceParent:     traceParent,
 		CreatedAt:       flow.Now(),
+	}
+	if newTask.Method == "" {
+		newTask.Method = "GET"
 	}
 
 	// Store the new task in Redis
@@ -99,8 +107,8 @@ func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskR
 		"id":          newTask.TaskID,
 		"description": newTask.TaskDescription,
 		"priority":    newTask.Priority,
-		"number1":     newTask.Number1,
-		"number2":     newTask.Number2,
+		"url":         newTask.URL,
+		"method":      newTask.Method,
 		"traceparent": newTask.TraceParent,
 		"status":      "QUEUED",
 	}).Err(); err != nil {
