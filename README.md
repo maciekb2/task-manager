@@ -39,6 +39,9 @@ project is structured and how to build and deploy the services.
 docker compose up --build
 ```
 
+## Visualizer
+A real-time system flow visualization is available at `http://localhost:8085` when running with Docker Compose.
+
 ## API
 The public API is gRPC (`proto/TaskManager`) with:
 - `SubmitTask` to enqueue a task

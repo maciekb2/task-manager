@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Task Manager Flow</title>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; background: #111; color: #eee; font-family: sans-serif; overflow: hidden; }
+        #mynetwork { width: 100vw; height: 100vh; }
+        #stats {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px;
+            pointer-events: none;
+        }
+        h1 { margin: 0 0 10px 0; font-size: 18px; color: #00bcd4; }
+        .stat-item { margin-bottom: 5px; font-size: 14px; }
+        .log-panel {
+            position: absolute; bottom: 10px; left: 10px; width: 400px; height: 150px;
+            background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px;
+            font-family: monospace; font-size: 12px; overflow-y: auto;
+        }
+        .log-entry { margin-bottom: 2px; border-bottom: 1px solid #333; }
+        .log-time { color: #888; margin-right: 5px; }
+    </style>
+</head>
+<body>
+
+<div id="stats">
+    <h1>System Stats</h1>
+    <div id="msg-rate" class="stat-item">Events/sec: 0</div>
+    <div id="total-tasks" class="stat-item">Total Tasks: 0</div>
+    <div id="active-tasks" class="stat-item">Active Tasks: 0</div>
+</div>
+
+<div id="log-panel" class="log-panel"></div>
+<div id="mynetwork"></div>
+
+<script type="text/javascript">
+    // --- Topology Definition ---
+    const nodes = new vis.DataSet([
+        { id: 'gateway', label: 'Gateway\n(gRPC)', shape: 'hexagon', color: '#4caf50', font: {color:'#fff'} },
+        { id: 'ingest', label: 'Ingest', shape: 'box', color: '#ff9800', font: {color:'#fff'} },
+        { id: 'enricher', label: 'Enricher', shape: 'ellipse', color: '#9c27b0', font: {color:'#fff'} },
+        { id: 'scheduler', label: 'Scheduler', shape: 'box', color: '#2196f3', font: {color:'#fff'} },
+        { id: 'worker', label: 'Worker Pool', shape: 'database', color: '#e91e63', font: {color:'#fff'} },
+        { id: 'result-store', label: 'Result Store', shape: 'database', color: '#00bcd4', font: {color:'#fff'} },
+        { id: 'notifier', label: 'Notifier', shape: 'box', color: '#607d8b', font: {color:'#fff'} },
+        { id: 'audit', label: 'Audit', shape: 'box', color: '#795548', font: {color:'#fff'} },
+        { id: 'deadletter', label: 'DeadLetter', shape: 'box', color: '#f44336', font: {color:'#fff'} }
+    ]);
+
+    const edges = new vis.DataSet([
+        // Logical Flows
+        { id: 'e-gw-in', from: 'gateway', to: 'ingest', arrows: 'to', length: 200 },
+        { id: 'e-in-en', from: 'ingest', to: 'enricher', arrows: 'to,from', dashes: true, label: 'HTTP' },
+        { id: 'e-in-sc', from: 'ingest', to: 'scheduler', arrows: 'to', length: 200 },
+        { id: 'e-sc-wk', from: 'scheduler', to: 'worker', arrows: 'to', length: 200, label: 'Priority Queues' },
+        { id: 'e-wk-rs', from: 'worker', to: 'result-store', arrows: 'to' },
+        { id: 'e-wk-nt', from: 'worker', to: 'notifier', arrows: 'to', dashes: true }, // Assuming notifier listens to status
+
+        // Audit taps everything, but let's visually put it aside or connect to worker/gateway
+        { id: 'e-all-au', from: 'worker', to: 'audit', arrows: 'to', color: {color:'#555', opacity:0.3}, dashes: true },
+        { id: 'e-gw-au', from: 'gateway', to: 'audit', arrows: 'to', color: {color:'#555', opacity:0.3}, dashes: true },
+
+        // Deadletter
+        { id: 'e-wk-dl', from: 'worker', to: 'deadletter', arrows: 'to', color: {color:'#f44336'}, dashes: true }
+    ]);
+
+    const container = document.getElementById('mynetwork');
+    const data = { nodes: nodes, edges: edges };
+    const options = {
+        physics: {
+            stabilization: false,
+            barnesHut: { gravitationalConstant: -8000, springConstant: 0.04, springLength: 95 }
+        },
+        interaction: { hover: true },
+        nodes: { shadow: true },
+        edges: { width: 2, shadow: true, smooth: { type: 'dynamic' } }
+    };
+    const network = new vis.Network(container, data, options);
+
+    // --- State & Logic ---
+    let eventCount = 0;
+    let totalTasks = 0;
+    let activeTasks = 0;
+    let lastSecondEvents = 0;
+
+    setInterval(() => {
+        document.getElementById('msg-rate').innerText = `Events/sec: ${eventCount - lastSecondEvents}`;
+        lastSecondEvents = eventCount;
+    }, 1000);
+
+    function log(msg) {
+        const p = document.getElementById('log-panel');
+        const div = document.createElement('div');
+        div.className = 'log-entry';
+        div.innerHTML = `<span class="log-time">${new Date().toLocaleTimeString()}</span> ${msg}`;
+        p.appendChild(div);
+        p.scrollTop = p.scrollHeight;
+        if (p.children.length > 50) p.removeChild(p.children[0]);
+    }
+
+    // --- WebSocket ---
+    const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(`${wsProtocol}//${location.host}/ws`);
+
+    socket.onopen = () => {
+        log("Connected to System Bus");
+    };
+
+    socket.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        eventCount++;
+        handleMessage(msg);
+    };
+
+    socket.onclose = () => {
+        log("Disconnected. Reconnecting...");
+        setTimeout(() => location.reload(), 3000);
+    };
+
+    function handleMessage(msg) {
+        const subject = msg.subject;
+        const payload = msg.data;
+
+        // Visual "packet" animation logic
+        if (subject === 'tasks.ingest') {
+            animateTraffic('gateway', 'ingest');
+            totalTasks++;
+            activeTasks++;
+            updateStats();
+        } else if (subject === 'tasks.schedule') {
+            animateTraffic('ingest', 'scheduler');
+        } else if (subject.startsWith('tasks.worker')) {
+            animateTraffic('scheduler', 'worker');
+        } else if (subject === 'tasks.results') {
+            animateTraffic('worker', 'result-store');
+            activeTasks = Math.max(0, activeTasks - 1);
+            updateStats();
+        } else if (subject === 'events.status') {
+            // "data": {"task_id":"...","status":"...","source":"..."}
+            if (payload && payload.status === 'ENRICHED') {
+                animateTraffic('ingest', 'enricher'); // and back?
+            }
+            if (payload && payload.status === 'FAILED') {
+                activeTasks = Math.max(0, activeTasks - 1);
+                updateStats();
+                // Flash the source node red
+                flashNode(mapSourceToNode(payload.source), '#f44336');
+            }
+        } else if (subject === 'events.deadletter') {
+             animateTraffic('worker', 'deadletter'); // Or source -> deadletter
+        }
+    }
+
+    function updateStats() {
+        document.getElementById('total-tasks').innerText = `Total Tasks: ${totalTasks}`;
+        document.getElementById('active-tasks').innerText = `Active Tasks: ${activeTasks}`;
+    }
+
+    function mapSourceToNode(source) {
+        if (!source) return 'worker';
+        if (source === 'gateway') return 'gateway';
+        return source; // usually matches id
+    }
+
+    // --- Animation Helpers ---
+    // vis-network doesn't have built-in edge traversal animation.
+    // We can simulate it by adding a temporary node and moving it, or easier:
+    // Just flash the edge or use a specific edge animation library.
+    // However, for "Moving particles", we can hack it by using the 'traffic' module logic if we had it,
+    // OR we can just flash the edge color.
+    // A more advanced approach: Add a node on top of the edge position and move it.
+
+    function animateTraffic(fromId, toId) {
+        // Simple visualization: Flash the edge
+        // Find edge between them
+        const edgeIds = edges.get({
+            filter: function (item) {
+                return (item.from === fromId && item.to === toId);
+            }
+        });
+
+        if (edgeIds.length > 0) {
+            const edgeId = edgeIds[0].id;
+            const originalWidth = edges.get(edgeId).width || 2;
+            const originalColor = edges.get(edgeId).color || {color:'#848484'};
+
+            edges.update({id: edgeId, width: 5, color: {color: '#ffff00'}});
+            setTimeout(() => {
+                edges.update({id: edgeId, width: originalWidth, color: originalColor});
+            }, 300);
+        }
+    }
+
+    function flashNode(nodeId, color) {
+        if (!nodes.get(nodeId)) return;
+        const originalColor = nodes.get(nodeId).color;
+        nodes.update({id: nodeId, color: color});
+        setTimeout(() => {
+            nodes.update({id: nodeId, color: originalColor});
+        }, 500);
+    }
+
+</script>
+</body>
+</html>

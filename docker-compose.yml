@@ -298,6 +298,19 @@ services:
     networks:
       - taskmanager-net
 
+  visualizer:
+    build:
+      context: visualizer
+    restart: unless-stopped
+    environment:
+      - NATS_URL=nats://nats:4222
+    ports:
+      - "8085:8085"
+    depends_on:
+      - nats
+    networks:
+      - taskmanager-net
+
 networks:
   taskmanager-net:
     name: taskmanager-net
