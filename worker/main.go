@@ -198,6 +198,7 @@ func processLoop(ctx context.Context, busClient *bus.Client, jobs <-chan *nats.M
 				enqueueStatus(ctxTask, busClient, task, "FAILED", "worker")
 				enqueueDeadLetter(ctxTask, busClient, task, "processing failed", bus.DeliveryAttempt(msg))
 				ackMessage("worker", msg)
+				recordMetrics(task.Priority, "failed", workerID, time.Since(start).Seconds())
 				span.End()
 				continue
 			}
@@ -213,6 +214,7 @@ func processLoop(ctx context.Context, busClient *bus.Client, jobs <-chan *nats.M
 				log.Printf("worker %d: publish results failed: %v", workerID, err)
 				span.RecordError(err)
 				handleProcessingFailure(ctxTask, busClient, msg, task, "publish results failed", true)
+				recordMetrics(task.Priority, "failed", workerID, time.Since(start).Seconds())
 				span.End()
 				continue
 			}
@@ -232,6 +234,7 @@ func processLoop(ctx context.Context, busClient *bus.Client, jobs <-chan *nats.M
 			})
 
 			ackMessage("worker", msg)
+			recordMetrics(task.Priority, "completed", workerID, time.Since(start).Seconds())
 			span.End()
 		}
 	}
