@@ -21,9 +21,24 @@
         }
         .log-entry { margin-bottom: 2px; border-bottom: 1px solid #333; }
         .log-time { color: #888; margin-right: 5px; }
+        #node-details {
+            position: absolute; top: 10px; right: 10px; width: 300px;
+            background: rgba(0,0,0,0.8); border: 1px solid #444; border-radius: 5px;
+            padding: 15px; color: #eee; font-family: sans-serif; display: none;
+        }
+        #node-details h2 { margin-top: 0; color: #00bcd4; font-size: 16px; border-bottom: 1px solid #444; padding-bottom: 5px; }
+        #node-details p { font-size: 13px; line-height: 1.4; color: #ccc; margin-bottom: 15px; }
+        .nd-stat-row { display: flex; justify-content: space-between; font-size: 13px; margin-top: 5px; border-bottom: 1px solid #333; padding-bottom: 2px; }
+        .nd-stat-val { font-weight: bold; color: #fff; }
     </style>
 </head>
 <body>
+
+<div id="node-details">
+    <h2 id="nd-title">Node Details</h2>
+    <p id="nd-desc">Select a node to view details.</p>
+    <div id="nd-stats"></div>
+</div>
 
 <div id="stats">
     <h1>System Stats</h1>
@@ -95,6 +110,38 @@
     };
     const network = new vis.Network(container, data, options);
 
+    // --- Node Metadata ---
+    const nodeInfo = {
+        'client': { title: 'Client (Producer)', description: 'Generates and sends tasks to the system. Represents external users or systems.' },
+        'gateway': { title: 'API Gateway', description: 'Entry point for the system. Exposes gRPC endpoints and forwards requests to the Ingest service.' },
+        'ingest': { title: 'Ingest Service', description: 'Validates incoming tasks, checks allow-lists, and publishes valid tasks to the pipeline.' },
+        'enricher': { title: 'Data Enricher', description: 'Analyzes tasks to assign priority scores (High/Medium/Low) based on URL characteristics.' },
+        'scheduler': { title: 'Job Scheduler', description: 'Routes tasks to specific NATS subjects (queues) based on the priority assigned by the Enricher.' },
+        'worker': { title: 'Worker Pool', description: 'Executes the core logic. Consumes tasks, performs HTTP checks, and generates results.' },
+        'result-store': { title: 'Result Store', description: 'Persists the final outcome of tasks (HTTP Status, Duration) to the database.' },
+        'notifier': { title: 'Notification Service', description: 'Listens for task completion events and broadcasts updates to clients via the Gateway.' },
+        'audit': { title: 'Audit Log', description: 'Observability component that taps into all events to create a compliance trail.' },
+        'deadletter': { title: 'Dead Letter Queue', description: 'Captures malformed or failed messages to ensure system stability and allow for debugging.' },
+        'redis': { title: 'Redis (Persistence)', description: 'Key-Value store used for persisting task state, results, queues, and event logs.' }
+    };
+
+    const nodeStats = {};
+    // Initialize stats
+    nodes.getIds().forEach(id => {
+        nodeStats[id] = { processed: 0, lastActive: null };
+    });
+    let currentSelectedNode = null;
+
+    network.on("click", function (params) {
+        if (params.nodes.length > 0) {
+            currentSelectedNode = params.nodes[0];
+            showNodeDetails(currentSelectedNode);
+        } else {
+            currentSelectedNode = null;
+            document.getElementById('node-details').style.display = 'none';
+        }
+    });
+
     // --- State & Logic ---
     let eventCount = 0;
     let totalTasks = 0;
@@ -104,6 +151,7 @@
     setInterval(() => {
         document.getElementById('msg-rate').innerText = `Events/sec: ${eventCount - lastSecondEvents}`;
         lastSecondEvents = eventCount;
+        updateNodeStatsUI();
     }, 1000);
 
     function log(msg) {
@@ -146,15 +194,23 @@
             totalTasks++;
             activeTasks++;
             updateStats();
+            incrementNodeStat('client');
+            incrementNodeStat('gateway');
+            incrementNodeStat('ingest');
         } else if (subject === 'tasks.schedule') {
             animateTraffic('ingest', 'scheduler');
+            incrementNodeStat('scheduler');
         } else if (subject.startsWith('tasks.worker')) {
             animateTraffic('scheduler', 'worker');
+            incrementNodeStat('worker');
         } else if (subject === 'tasks.results') {
             animateTraffic('worker', 'result-store');
             setTimeout(() => animateTraffic('result-store', 'redis'), 150);
             activeTasks = Math.max(0, activeTasks - 1);
             updateStats();
+            incrementNodeStat('worker');
+            incrementNodeStat('result-store');
+            incrementNodeStat('redis');
         } else if (subject === 'events.status') {
             // Logic: Source -> Notifier -> Redis -> Gateway -> Client
             const source = mapSourceToNode(payload.source);
@@ -163,10 +219,15 @@
             setTimeout(() => animateTraffic('notifier', 'redis'), 150);
             setTimeout(() => animateTraffic('redis', 'gateway'), 300);
             setTimeout(() => animateTraffic('gateway', 'client'), 450);
+            incrementNodeStat('notifier');
+            incrementNodeStat('redis');
+            incrementNodeStat('gateway');
+            incrementNodeStat('client');
 
             if (payload && payload.status === 'ENRICHED') {
                 animateTraffic('ingest', 'enricher');
                 setTimeout(() => animateTraffic('enricher', 'ingest'), 200);
+                incrementNodeStat('enricher');
             }
             if (payload && payload.status === 'FAILED') {
                 activeTasks = Math.max(0, activeTasks - 1);
@@ -181,11 +242,15 @@
             }
             animateTraffic(source, 'audit');
             setTimeout(() => animateTraffic('audit', 'redis'), 150);
+            incrementNodeStat('audit');
+            incrementNodeStat('redis');
 
         } else if (subject === 'events.deadletter') {
              // Logic: Source -> Deadletter -> Redis
              animateTraffic('worker', 'deadletter');
              setTimeout(() => animateTraffic('deadletter', 'redis'), 150);
+             incrementNodeStat('deadletter');
+             incrementNodeStat('redis');
         }
     }
 
@@ -235,6 +300,44 @@
         setTimeout(() => {
             nodes.update({id: nodeId, color: originalColor});
         }, 500);
+    }
+
+    function incrementNodeStat(id) {
+        if (nodeStats[id]) {
+            nodeStats[id].processed++;
+            nodeStats[id].lastActive = new Date();
+        }
+    }
+
+    function showNodeDetails(nodeId) {
+        const info = nodeInfo[nodeId];
+        if (!info) return;
+
+        currentSelectedNode = nodeId;
+        const panel = document.getElementById('node-details');
+        document.getElementById('nd-title').innerText = info.title;
+        document.getElementById('nd-desc').innerText = info.description;
+
+        updateNodeStatsUI();
+        panel.style.display = 'block';
+    }
+
+    function updateNodeStatsUI() {
+        if (!currentSelectedNode) return;
+        const stats = nodeStats[currentSelectedNode];
+        const panelStats = document.getElementById('nd-stats');
+
+        let lastActiveStr = 'Never';
+        if (stats.lastActive) {
+            const diff = Math.floor((new Date() - stats.lastActive) / 1000);
+            lastActiveStr = diff + 's ago';
+            if (diff === 0) lastActiveStr = 'Just now';
+        }
+
+        panelStats.innerHTML = `
+            <div class="nd-stat-row"><span class="nd-stat-lbl">Processed:</span> <span class="nd-stat-val">${stats.processed}</span></div>
+            <div class="nd-stat-row"><span class="nd-stat-lbl">Last Active:</span> <span class="nd-stat-val">${lastActiveStr}</span></div>
+        `;
     }
 
 </script>
