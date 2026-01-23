@@ -157,3 +157,46 @@ func TestProcessLoop_Failure(t *testing.T) {
 		t.Error("expected deadletter due to simulated failure")
 	}
 }
+
+func TestProcessLoop_BadPayload(t *testing.T) {
+	publisher := &MockPublisher{}
+	jobs := make(chan *nats.Msg, 1)
+
+	// Inject malformed JSON
+	msg := &nats.Msg{
+		Subject: "tasks.worker.medium",
+		Data:    []byte("this is not json"),
+		Header:  nats.Header{},
+	}
+	jobs <- msg
+	close(jobs)
+
+	// Mock check (shouldn't be called)
+	mockCheck := func(ctx context.Context, url, method string) (int, int64, error) {
+		return 200, 0, nil
+	}
+
+	processLoop(context.Background(), publisher, jobs, 1, 0.0, mockCheck)
+
+	publisher.mu.Lock()
+	defer publisher.mu.Unlock()
+
+	foundDeadLetter := false
+	for _, p := range publisher.Published {
+		if p.Subject == bus.SubjectEventDeadLetter {
+			foundDeadLetter = true
+			dl, ok := p.Payload.(flow.DeadLetter)
+			if !ok {
+				t.Error("payload is not DeadLetter")
+				continue
+			}
+			if dl.Reason != "bad payload" {
+				t.Errorf("expected reason 'bad payload', got '%s'", dl.Reason)
+			}
+		}
+	}
+
+	if !foundDeadLetter {
+		t.Error("expected deadletter event for bad payload")
+	}
+}
