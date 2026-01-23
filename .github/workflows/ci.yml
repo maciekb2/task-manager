@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "**" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "dev" ]
 
 jobs:
   test:
@@ -20,5 +20,18 @@ jobs:
           go-version: '1.23'
           cache: false
 
-      - name: Run Tests
-        run: make test-all
+      - name: Run Unit Tests
+        run: |
+          set -e
+          modules="enricher client worker server result-store deadletter scheduler notifier audit ingest"
+          for dir in $modules; do
+            echo "Testing $dir..."
+            (cd "$dir" && go mod tidy && go test -v ./...)
+          done
+
+      - name: Run E2E Tests
+        run: docker compose up --build --exit-code-from e2e-tests
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
