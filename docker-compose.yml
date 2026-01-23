@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.93.0
+    image: public.ecr.aws/otel/opentelemetry-collector-contrib:0.93.0
     command: ["--config=/etc/otelcol/config.yaml"]
     restart: unless-stopped
     volumes:
@@ -11,7 +11,7 @@ services:
       - taskmanager-net
 
   prometheus:
-    image: prom/prometheus:v2.49.1
+    image: public.ecr.aws/prometheus/prometheus:v2.49.1
     command: ["--config.file=/etc/prometheus/prometheus.yaml"]
     restart: unless-stopped
     volumes:
@@ -24,7 +24,7 @@ services:
       - taskmanager-net
 
   tempo:
-    image: grafana/tempo:2.3.0
+    image: public.ecr.aws/grafana/tempo:2.3.0
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     restart: unless-stopped
     volumes:
@@ -38,7 +38,7 @@ services:
       - taskmanager-net
 
   loki:
-    image: grafana/loki:2.9.4
+    image: public.ecr.aws/grafana/loki:2.9.4
     command: ["-config.file=/etc/loki/loki-config.yaml"]
     hostname: loki
     restart: unless-stopped
@@ -52,7 +52,7 @@ services:
       - taskmanager-net
 
   promtail:
-    image: grafana/promtail:2.9.4
+    image: public.ecr.aws/grafana/promtail:2.9.4
     command: ["-config.file=/etc/promtail/promtail-config.yaml"]
     restart: unless-stopped
     volumes:
@@ -66,7 +66,7 @@ services:
       - taskmanager-net
 
   grafana:
-    image: grafana/grafana:10.4.2
+    image: public.ecr.aws/grafana/grafana:10.4.2
     restart: unless-stopped
     depends_on:
       - otel-collector
@@ -120,7 +120,7 @@ services:
       - taskmanager-net
 
   envoy:
-    image: envoyproxy/envoy:v1.30.2
+    image: public.ecr.aws/envoyproxy/envoy:v1.30.2
     command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
     restart: unless-stopped
     volumes:
