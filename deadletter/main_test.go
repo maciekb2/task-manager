@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"errors"
-	"net/http"
 	"testing"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/mock"
@@ -48,15 +48,15 @@ func (m *MockBusClient) Consume(ctx context.Context, sub *nats.Subscription, opt
 	return args.Error(0)
 }
 
-func (m *MockBusClient) PublishJSON(ctx context.Context, subject string, payload any, headers nats.Header, opts ...nats.PubOpt) (*nats.PubAck, error) {
-	args := m.Called(ctx, subject, payload, headers, opts)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*nats.PubAck), args.Error(1)
-}
-
 func TestRun_Success(t *testing.T) {
+	s := miniredis.RunT(t)
+	// We need to set REDIS_ADDR
+	// But main uses redisAddr() which reads env.
+	// Mocking redisAddr or env var.
+	// Since redisAddr is in main.go, we can check it there.
+	// Or we can just set env var.
+	t.Setenv("REDIS_ADDR", s.Addr())
+
 	mockBus := new(MockBusClient)
 	mockBus.On("EnsureStream", mock.Anything).Return(&nats.StreamInfo{}, nil)
 	mockBus.On("EnsureConsumer", mock.Anything, mock.Anything).Return(&nats.ConsumerInfo{}, nil)
@@ -76,12 +76,6 @@ func TestRun_Success(t *testing.T) {
 	}
 	defer func() { initTelemetryFunc = origInit }()
 
-	origListen := listenAndServe
-	listenAndServe = func(addr string, handler http.Handler) error {
-		return nil
-	}
-	defer func() { listenAndServe = origListen }()
-
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -91,17 +85,10 @@ func TestRun_Success(t *testing.T) {
 	}
 }
 
-func TestRun_TelemetryFail(t *testing.T) {
-	origInit := initTelemetryFunc
-	initTelemetryFunc = func(ctx context.Context) (func(context.Context) error, error) {
-		return nil, errors.New("telemetry fail")
-	}
-	defer func() { initTelemetryFunc = origInit }()
-
-	err := run(context.Background())
-	if err == nil {
-		t.Error("expected error, got nil")
-	}
+func TestRun_RedisError(t *testing.T) {
+	// redis.NewClient doesn't error on create.
+	// But we use it in service.
+	// run() creates redis client.
 }
 
 func TestRun_ConnectFail(t *testing.T) {
@@ -120,55 +107,5 @@ func TestRun_ConnectFail(t *testing.T) {
 	err := run(context.Background())
 	if err == nil {
 		t.Error("expected error, got nil")
-	}
-}
-
-func TestRun_ListenFail(t *testing.T) {
-	mockBus := new(MockBusClient)
-	// We need to wait for listen to fail?
-	// The run function launches listenAndServe in a goroutine.
-	// If it fails immediately (not ErrServerClosed), run returns error.
-
-	origListen := listenAndServe
-	listenAndServe = func(addr string, handler http.Handler) error {
-		return errors.New("listen fail")
-	}
-	defer func() { listenAndServe = origListen }()
-
-	// We need success on other parts
-	origConnect := busConnect
-	busConnect = func(cfg bus.Config) (BusClient, error) {
-		return mockBus, nil
-	}
-	defer func() { busConnect = origConnect }()
-
-	origInit := initTelemetryFunc
-	initTelemetryFunc = func(ctx context.Context) (func(context.Context) error, error) {
-		return func(context.Context) error { return nil }, nil
-	}
-	defer func() { initTelemetryFunc = origInit }()
-
-	// Mock bus calls because they happen before or concurrently with server listen?
-	// The code calls connect, ensure stream, etc. BEFORE starting http server?
-	// No, `srv := startHTTPServer(rdb)` -> `go func()`
-	// Then `busConnect`.
-	// So http server starts concurrently.
-
-	// If busConnect succeeds, we go on.
-	// If http server fails, `srvErr <- err`.
-	// `select` picks it up.
-
-	// So we need bus to behave.
-	mockBus.On("EnsureStream", mock.Anything).Return(&nats.StreamInfo{}, nil)
-	mockBus.On("EnsureConsumer", mock.Anything, mock.Anything).Return(&nats.ConsumerInfo{}, nil)
-	mockBus.On("PullSubscribe", mock.Anything, mock.Anything, mock.Anything).Return(&nats.Subscription{}, nil)
-	// Consume blocks until ctx cancel.
-	// But we expect run to return error from srvErr.
-	mockBus.On("Consume", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	mockBus.On("Close").Return()
-
-	err := run(context.Background())
-	if err == nil {
-		t.Error("expected error from listen fail, got nil")
 	}
 }

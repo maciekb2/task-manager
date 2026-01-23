@@ -12,51 +12,75 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+// BusClient interface for mocking
+type BusClient interface {
+	Close()
+	EnsureStream(cfg *nats.StreamConfig) (*nats.StreamInfo, error)
+	EnsureConsumer(stream string, cfg *nats.ConsumerConfig) (*nats.ConsumerInfo, error)
+	PullSubscribe(subject, durable string, opts ...nats.SubOpt) (*nats.Subscription, error)
+	PublishJSON(ctx context.Context, subject string, payload any, headers nats.Header, opts ...nats.PubOpt) (*nats.PubAck, error)
+}
+
+// Variables for mocking
+var (
+	busConnect = func(cfg bus.Config) (BusClient, error) {
+		return bus.Connect(cfg)
+	}
+	initTelemetryFunc = initTelemetry
+)
+
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	if err := run(context.Background()); err != nil {
+		log.Fatalf("worker run failed: %v", err)
+	}
+}
+
+func run(ctx context.Context) error {
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	shutdown, err := initTelemetry(ctx)
+	shutdown, err := initTelemetryFunc(ctx)
 	if err != nil {
-		log.Fatalf("telemetry init failed: %v", err)
+		return err
 	}
 	defer shutdown(ctx)
 
-	busClient, err := bus.Connect(bus.Config{URL: natsURL(), Name: "worker"})
+	busClient, err := busConnect(bus.Config{URL: natsURL(), Name: "worker"})
 	if err != nil {
-		log.Fatalf("nats connect failed: %v", err)
+		return err
 	}
 	defer busClient.Close()
+
 	if _, err := busClient.EnsureStream(bus.TasksStreamConfig()); err != nil {
-		log.Fatalf("nats stream setup failed: %v", err)
+		return err
 	}
 	if _, err := busClient.EnsureStream(bus.EventsStreamConfig()); err != nil {
-		log.Fatalf("nats stream setup failed: %v", err)
+		return err
 	}
 
 	highCfg := bus.DefaultConsumerConfig(bus.DurableName(bus.StreamTasks, "worker-high"), bus.SubjectTaskWorkerHigh)
 	mediumCfg := bus.DefaultConsumerConfig(bus.DurableName(bus.StreamTasks, "worker-medium"), bus.SubjectTaskWorkerMedium)
 	lowCfg := bus.DefaultConsumerConfig(bus.DurableName(bus.StreamTasks, "worker-low"), bus.SubjectTaskWorkerLow)
 	if _, err := busClient.EnsureConsumer(bus.StreamTasks, highCfg); err != nil {
-		log.Fatalf("nats consumer setup failed: %v", err)
+		return err
 	}
 	if _, err := busClient.EnsureConsumer(bus.StreamTasks, mediumCfg); err != nil {
-		log.Fatalf("nats consumer setup failed: %v", err)
+		return err
 	}
 	if _, err := busClient.EnsureConsumer(bus.StreamTasks, lowCfg); err != nil {
-		log.Fatalf("nats consumer setup failed: %v", err)
+		return err
 	}
 	highSub, err := busClient.PullSubscribe(bus.SubjectTaskWorkerHigh, highCfg.Durable)
 	if err != nil {
-		log.Fatalf("nats subscribe failed: %v", err)
+		return err
 	}
 	mediumSub, err := busClient.PullSubscribe(bus.SubjectTaskWorkerMedium, mediumCfg.Durable)
 	if err != nil {
-		log.Fatalf("nats subscribe failed: %v", err)
+		return err
 	}
 	lowSub, err := busClient.PullSubscribe(bus.SubjectTaskWorkerLow, lowCfg.Durable)
 	if err != nil {
-		log.Fatalf("nats subscribe failed: %v", err)
+		return err
 	}
 
 	count := workerCount()
@@ -78,4 +102,5 @@ func main() {
 	log.Println("Shutting down worker...")
 	time.Sleep(time.Second)
 	log.Println("Worker stopped.")
+	return nil
 }

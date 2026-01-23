@@ -29,6 +29,11 @@ func (m *MockBus) PublishJSON(ctx context.Context, subject string, payload any, 
 	return &nats.PubAck{}, nil
 }
 
+// Satisfy BusClient interface
+func (m *MockBus) Close() {}
+func (m *MockBus) EnsureStream(cfg *nats.StreamConfig) (*nats.StreamInfo, error) { return nil, nil }
+func (m *MockBus) EnsureConsumer(stream string, cfg *nats.ConsumerConfig) (*nats.ConsumerInfo, error) { return nil, nil }
+
 func TestSubmitTask(t *testing.T) {
 	mr, err := miniredis.Run()
 	if err != nil {

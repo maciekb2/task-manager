@@ -33,59 +33,105 @@ type resultStoreMetrics struct {
 var getDeliveryAttempt = bus.DeliveryAttempt
 
 type BusClient interface {
+	Close()
+	EnsureStream(cfg *nats.StreamConfig) (*nats.StreamInfo, error)
+	EnsureConsumer(stream string, cfg *nats.ConsumerConfig) (*nats.ConsumerInfo, error)
+	PullSubscribe(subject, durable string, opts ...nats.SubOpt) (*nats.Subscription, error)
+	Consume(ctx context.Context, sub *nats.Subscription, opts bus.ConsumeOptions, handler bus.Handler) error
 	PublishJSON(ctx context.Context, subject string, payload any, headers nats.Header, opts ...nats.PubOpt) (*nats.PubAck, error)
 }
 
+var (
+	busConnect = func(cfg bus.Config) (BusClient, error) {
+		return bus.Connect(cfg)
+	}
+	initTelemetryFunc = initTelemetry
+	listenAndServe    = func(addr string, handler http.Handler) error {
+		return http.ListenAndServe(addr, handler)
+	}
+)
+
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	if err := run(context.Background()); err != nil {
+		log.Fatalf("result-store run failed: %v", err)
+	}
+}
+
+func run(ctx context.Context) error {
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	shutdown, err := initTelemetry(ctx)
+	shutdown, err := initTelemetryFunc(ctx)
 	if err != nil {
-		log.Fatalf("telemetry init failed: %v", err)
+		return err
 	}
 	defer shutdown(ctx)
 	metrics, err := initMetrics()
 	if err != nil {
-		log.Fatalf("metrics init failed: %v", err)
+		return err
 	}
 
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr()})
+	defer rdb.Close()
+
 	srv := startHTTPServer(rdb)
-	busClient, err := bus.Connect(bus.Config{URL: natsURL(), Name: "result-store"})
+
+	srvErr := make(chan error, 1)
+	go func() {
+		log.Printf("result-store http listening on %s", srv.Addr)
+		if err := listenAndServe(srv.Addr, srv.Handler); err != nil && err != http.ErrServerClosed {
+			srvErr <- err
+		}
+		close(srvErr)
+	}()
+
+	busClient, err := busConnect(bus.Config{URL: natsURL(), Name: "result-store"})
 	if err != nil {
-		log.Fatalf("nats connect failed: %v", err)
+		return err
 	}
 	defer busClient.Close()
+
 	if _, err := busClient.EnsureStream(bus.TasksStreamConfig()); err != nil {
-		log.Fatalf("nats stream setup failed: %v", err)
+		return err
 	}
 	if _, err := busClient.EnsureStream(bus.EventsStreamConfig()); err != nil {
-		log.Fatalf("nats stream setup failed: %v", err)
+		return err
 	}
 	consumerCfg := bus.DefaultConsumerConfig(bus.DurableName(bus.StreamTasks, "result-store"), bus.SubjectTaskResults)
 	if _, err := busClient.EnsureConsumer(bus.StreamTasks, consumerCfg); err != nil {
-		log.Fatalf("nats consumer setup failed: %v", err)
+		return err
 	}
 	sub, err := busClient.PullSubscribe(bus.SubjectTaskResults, consumerCfg.Durable)
 	if err != nil {
-		log.Fatalf("nats subscribe failed: %v", err)
+		return err
 	}
 
 	tracer := otel.Tracer("result-store")
-	if err := busClient.Consume(ctx, sub, bus.ConsumeOptions{Batch: 5, MaxWait: 5 * time.Second, DisableAutoAck: true}, func(msgCtx context.Context, msg *nats.Msg) error {
-		return ProcessMessage(msgCtx, msg, rdb, busClient, tracer, metrics)
-	}); err != nil && err != context.Canceled {
-		log.Fatalf("result-store consume failed: %v", err)
-	}
+	consumeErr := make(chan error, 1)
+	go func() {
+		if err := busClient.Consume(ctx, sub, bus.ConsumeOptions{Batch: 5, MaxWait: 5 * time.Second, DisableAutoAck: true}, func(msgCtx context.Context, msg *nats.Msg) error {
+			return ProcessMessage(msgCtx, msg, rdb, busClient, tracer, metrics)
+		}); err != nil && err != context.Canceled {
+			consumeErr <- err
+		}
+		close(consumeErr)
+	}()
 
-	log.Println("Shutting down result-store http...")
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer shutdownCancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("result-store http shutdown error: %v", err)
+	select {
+	case <-ctx.Done():
+		log.Println("Shutting down result-store http...")
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return err
+		}
+		log.Println("Result-store stopped.")
+		return nil
+	case err := <-srvErr:
+		return err
+	case err := <-consumeErr:
+		return err
 	}
-	log.Println("Result-store stopped.")
 }
 
 func ProcessMessage(msgCtx context.Context, msg *nats.Msg, rdb *redis.Client, busClient BusClient, tracer trace.Tracer, metrics resultStoreMetrics) error {
@@ -206,12 +252,8 @@ func startHTTPServer(rdb *redis.Client) *http.Server {
 
 	addr := ":" + resultPort()
 	srv := &http.Server{Addr: addr, Handler: mux}
-	go func() {
-		log.Printf("result-store http listening on %s", addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("result-store http failed: %v", err)
-		}
-	}()
+	// We don't start the server here anymore (goroutine), we return it.
+	// But previously main started it. Now run() starts it.
 	return srv
 }
 

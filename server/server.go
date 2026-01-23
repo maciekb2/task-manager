@@ -29,6 +29,9 @@ import (
 )
 
 type BusClient interface {
+	Close()
+	EnsureStream(cfg *nats.StreamConfig) (*nats.StreamInfo, error)
+	EnsureConsumer(stream string, cfg *nats.ConsumerConfig) (*nats.ConsumerInfo, error)
 	PublishJSON(ctx context.Context, subject string, payload any, headers nats.Header, opts ...nats.PubOpt) (*nats.PubAck, error)
 }
 
@@ -200,48 +203,73 @@ func (s *server) StreamTaskStatus(req *pb.StatusRequest, stream pb.TaskManager_S
 	}
 }
 
+var (
+	busConnect = func(cfg bus.Config) (BusClient, error) {
+		return bus.Connect(cfg)
+	}
+	initTelemetryFunc = initTelemetry
+	netListen = net.Listen
+)
+
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	if err := run(context.Background()); err != nil {
+		log.Fatalf("server run failed: %v", err)
+	}
+}
+
+func run(ctx context.Context) error {
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	shutdown, err := initTelemetry(ctx)
+	shutdown, err := initTelemetryFunc(ctx)
 	if err != nil {
-		log.Fatalf("telemetry init failed: %v", err)
+		return err
 	}
 	defer shutdown(ctx)
 
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr()})
-	busClient, err := bus.Connect(bus.Config{URL: natsURL(), Name: "gateway"})
+	// Close redis? It doesn't have Close error return in standard usage usually but good practice.
+	defer rdb.Close()
+
+	busClient, err := busConnect(bus.Config{URL: natsURL(), Name: "gateway"})
 	if err != nil {
-		log.Fatalf("nats connect failed: %v", err)
+		return err
 	}
 	defer busClient.Close()
+
 	if _, err := busClient.EnsureStream(bus.TasksStreamConfig()); err != nil {
-		log.Fatalf("nats stream setup failed: %v", err)
+		return err
 	}
 	if _, err := busClient.EnsureStream(bus.EventsStreamConfig()); err != nil {
-		log.Fatalf("nats stream setup failed: %v", err)
+		return err
 	}
 
-	lis, err := net.Listen("tcp", ":50051")
+	lis, err := netListen("tcp", ":50051")
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		return err
 	}
 
 	grpcServer := grpc.NewServer(serverOpts()...)
 	pb.RegisterTaskManagerServer(grpcServer, newServer(rdb, busClient))
 
+	srvErr := make(chan error, 1)
 	go func() {
 		log.Println("Serwer gRPC działa na porcie :50051")
 		if err := grpcServer.Serve(lis); err != nil {
-			log.Fatalf("failed to serve: %v", err)
+			srvErr <- err
 		}
+		close(srvErr)
 	}()
 
-	<-ctx.Done()
-	log.Println("Shutting down gRPC server...")
-	grpcServer.GracefulStop()
-	log.Println("gRPC server stopped.")
+	select {
+	case <-ctx.Done():
+		log.Println("Shutting down gRPC server...")
+		grpcServer.GracefulStop()
+		log.Println("gRPC server stopped.")
+		return nil
+	case err := <-srvErr:
+		return err
+	}
 }
 
 func (s *server) enqueueStatus(ctx context.Context, update flow.StatusUpdate) error {

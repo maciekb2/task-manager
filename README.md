@@ -55,3 +55,15 @@ This project is licensed under the [Apache 2.0 License](LICENSE).
 
 ## Contact
 For questions or support, please contact [maciekbrzezny@gmail.com](mailto:maciekbrzezny@gmail.com).
+
+## Test Coverage
+See [docs/COVERAGE.md](docs/COVERAGE.md) for detailed coverage reports.
+
+| Module | Coverage |
+|---|---|
+| **enricher** | ![Coverage](https://img.shields.io/badge/coverage-92%25-brightgreen) |
+| **ingest** | ![Coverage](https://img.shields.io/badge/coverage-92%25-brightgreen) |
+| **scheduler** | ![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen) |
+| **server** | ![Coverage](https://img.shields.io/badge/coverage-85%25-green) |
+| **worker** | ![Coverage](https://img.shields.io/badge/coverage-75%25-yellowgreen) |
+| **result-store** | ![Coverage](https://img.shields.io/badge/coverage-74%25-yellowgreen) |

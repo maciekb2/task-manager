@@ -52,14 +52,17 @@ func initTelemetry(ctx context.Context) (func(context.Context) error, error) {
 	otel.SetMeterProvider(mp)
 
 	go func() {
-		http.Handle("/metrics", promhttp.Handler())
-		if err := http.ListenAndServe(":2222", nil); err != nil {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		if err := listenAndServe(":"+metricsPort(), mux); err != nil {
 			log.Printf("prometheus endpoint error: %v", err)
 		}
 	}()
 
 	return tp.Shutdown, nil
 }
+
+var listenAndServe = http.ListenAndServe
 
 func serverOpts() []grpc.ServerOption {
 	return []grpc.ServerOption{
@@ -73,4 +76,11 @@ func otelEndpoint() string {
 		return endpoint
 	}
 	return "tempo:4317"
+}
+
+func metricsPort() string {
+	if port := os.Getenv("METRICS_PORT"); port != "" {
+		return port
+	}
+	return "2222"
 }

@@ -21,6 +21,8 @@ type MockMessage struct {
 	MetaVal    *nats.MsgMetadata
 	MetaErr    error
 	SubjectVal string
+	AckErr     error
+	NakErr     error
 }
 
 func (m *MockMessage) GetData() []byte { return m.DataVal }
@@ -32,11 +34,11 @@ func (m *MockMessage) GetHeaders() nats.Header {
 }
 func (m *MockMessage) Ack() error {
 	m.AckCalled = true
-	return nil
+	return m.AckErr
 }
 func (m *MockMessage) Nak() error {
 	m.NakCalled = true
-	return nil
+	return m.NakErr
 }
 func (m *MockMessage) Metadata() (*nats.MsgMetadata, error) {
 	return m.MetaVal, m.MetaErr
@@ -51,11 +53,16 @@ type PublishedMsg struct {
 type MockPublisher struct {
 	Published []PublishedMsg
 	Err       error
+	ErrMap    map[string]error
 }
 
 func (p *MockPublisher) PublishJSON(ctx context.Context, subject string, payload any, headers nats.Header, opts ...nats.PubOpt) (*nats.PubAck, error) {
+	if p.ErrMap != nil {
+		if err, ok := p.ErrMap[subject]; ok {
+			return nil, err
+		}
+	}
 	if p.Err != nil && subject == bus.SubjectTaskSchedule {
-		// Simulate error only for schedule if needed, or global
 		return nil, p.Err
 	}
 	p.Published = append(p.Published, PublishedMsg{Subject: subject, Payload: payload})

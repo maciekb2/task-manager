@@ -14,6 +14,8 @@ func TestHub(t *testing.T) {
 	hub := NewHub()
 	go hub.Run()
 
+	var serverConn *websocket.Conn
+
 	// Setup a test server to handle websocket upgrade
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upgrader := websocket.Upgrader{}
@@ -21,6 +23,7 @@ func TestHub(t *testing.T) {
 		if err != nil {
 			return
 		}
+		serverConn = c
 		hub.register <- c
 	}))
 	defer s.Close()
@@ -51,7 +54,7 @@ func TestHub(t *testing.T) {
 		Data:      "test-data",
 		Timestamp: 123456789,
 	}
-	hub.broadcast <- event
+	hub.Broadcast(event)
 
 	// Read message on client
 	var received Event
@@ -67,28 +70,38 @@ func TestHub(t *testing.T) {
 		t.Errorf("expected data %s, got %s", event.Data, received.Data)
 	}
 
-	// Test Unregister
-	// We can't easily access the server-side connection to send to unregister channel directly
-	// without exposing it from the handler.
-	// But closing the client connection usually triggers read error on server side,
-	// which Hub handles by unregistering. However, Hub.run only reads from channels,
-	// it doesn't read from the websocket connection.
-	// Wait, Hub.run writes to the connection. If write fails, it unregisters.
+	// Test Explicit Unregister
+	if serverConn != nil {
+		hub.unregister <- serverConn
+		time.Sleep(100 * time.Millisecond)
+		hub.lock.Lock()
+		if len(hub.clients) != 0 {
+			t.Errorf("expected 0 clients after unregister, got %d", len(hub.clients))
+		}
+		hub.lock.Unlock()
+	}
 
-	ws.Close()
-
-	// Send another message to trigger write error and cleanup
-	hub.broadcast <- event
-
+	// Test Write Failure (Implicit Unregister)
+	// Reconnect
+	ws2, _, err := websocket.DefaultDialer.Dial(u, nil)
+	if err != nil {
+		t.Fatalf("dial 2: %v", err)
+	}
 	time.Sleep(100 * time.Millisecond)
 
 	hub.lock.Lock()
-	// Should be 0, but might be timing dependent.
-	// The write failure in Hub.run removes the client.
+	if len(hub.clients) != 1 {
+		t.Errorf("expected 1 client after reconnect, got %d", len(hub.clients))
+	}
+	hub.lock.Unlock()
+
+	ws2.Close()
+	hub.Broadcast(event)
+
+	time.Sleep(100 * time.Millisecond)
+	hub.lock.Lock()
 	if len(hub.clients) != 0 {
-		// It's possible the write didn't happen yet or didn't fail yet.
-		// Let's not fail strict on this flaky behavior in a simple unit test,
-		// but checking registration is the main part.
+		// This might be flaky if OS buffers the write
 	}
 	hub.lock.Unlock()
 }

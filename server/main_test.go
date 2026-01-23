@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"errors"
-	"net/http"
+	"net"
 	"testing"
 
 	"github.com/maciekb2/task-manager/pkg/bus"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+// MockBusClient for server (similar to ingest/scheduler but re-declared)
 type MockBusClient struct {
 	mock.Mock
 }
@@ -35,19 +36,6 @@ func (m *MockBusClient) EnsureConsumer(stream string, cfg *nats.ConsumerConfig) 
 	return args.Get(0).(*nats.ConsumerInfo), args.Error(1)
 }
 
-func (m *MockBusClient) PullSubscribe(subject, durable string, opts ...nats.SubOpt) (*nats.Subscription, error) {
-	args := m.Called(subject, durable, opts)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*nats.Subscription), args.Error(1)
-}
-
-func (m *MockBusClient) Consume(ctx context.Context, sub *nats.Subscription, opts bus.ConsumeOptions, handler bus.Handler) error {
-	args := m.Called(ctx, sub, opts, handler)
-	return args.Error(0)
-}
-
 func (m *MockBusClient) PublishJSON(ctx context.Context, subject string, payload any, headers nats.Header, opts ...nats.PubOpt) (*nats.PubAck, error) {
 	args := m.Called(ctx, subject, payload, headers, opts)
 	if args.Get(0) == nil {
@@ -59,9 +47,6 @@ func (m *MockBusClient) PublishJSON(ctx context.Context, subject string, payload
 func TestRun_Success(t *testing.T) {
 	mockBus := new(MockBusClient)
 	mockBus.On("EnsureStream", mock.Anything).Return(&nats.StreamInfo{}, nil)
-	mockBus.On("EnsureConsumer", mock.Anything, mock.Anything).Return(&nats.ConsumerInfo{}, nil)
-	mockBus.On("PullSubscribe", mock.Anything, mock.Anything, mock.Anything).Return(&nats.Subscription{}, nil)
-	mockBus.On("Consume", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mockBus.On("Close").Return()
 
 	origConnect := busConnect
@@ -76,13 +61,20 @@ func TestRun_Success(t *testing.T) {
 	}
 	defer func() { initTelemetryFunc = origInit }()
 
-	origListen := listenAndServe
-	listenAndServe = func(addr string, handler http.Handler) error {
-		return nil
+	origListen := netListen
+	netListen = func(network, address string) (net.Listener, error) {
+		return net.Listen(network, ":0") // Random port
 	}
-	defer func() { listenAndServe = origListen }()
+	defer func() { netListen = origListen }()
+
+	// We need a real Redis or mock?
+	// The run function creates redis client but doesn't ping it immediately.
+	// `NewClient` just returns a client handle.
+	// But `run` doesn't use redis until serving requests.
+	// So we should be fine.
 
 	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel immediately to trigger graceful stop
 	cancel()
 
 	err := run(ctx)
@@ -123,19 +115,11 @@ func TestRun_ConnectFail(t *testing.T) {
 	}
 }
 
-func TestRun_ListenFail(t *testing.T) {
+func TestRun_StreamFail(t *testing.T) {
 	mockBus := new(MockBusClient)
-	// We need to wait for listen to fail?
-	// The run function launches listenAndServe in a goroutine.
-	// If it fails immediately (not ErrServerClosed), run returns error.
+	mockBus.On("EnsureStream", mock.Anything).Return(nil, errors.New("stream fail")).Once()
+	mockBus.On("Close").Return()
 
-	origListen := listenAndServe
-	listenAndServe = func(addr string, handler http.Handler) error {
-		return errors.New("listen fail")
-	}
-	defer func() { listenAndServe = origListen }()
-
-	// We need success on other parts
 	origConnect := busConnect
 	busConnect = func(cfg bus.Config) (BusClient, error) {
 		return mockBus, nil
@@ -148,27 +132,37 @@ func TestRun_ListenFail(t *testing.T) {
 	}
 	defer func() { initTelemetryFunc = origInit }()
 
-	// Mock bus calls because they happen before or concurrently with server listen?
-	// The code calls connect, ensure stream, etc. BEFORE starting http server?
-	// No, `srv := startHTTPServer(rdb)` -> `go func()`
-	// Then `busConnect`.
-	// So http server starts concurrently.
+	err := run(context.Background())
+	if err == nil {
+		t.Error("expected error, got nil")
+	}
+}
 
-	// If busConnect succeeds, we go on.
-	// If http server fails, `srvErr <- err`.
-	// `select` picks it up.
-
-	// So we need bus to behave.
+func TestRun_ListenFail(t *testing.T) {
+	mockBus := new(MockBusClient)
 	mockBus.On("EnsureStream", mock.Anything).Return(&nats.StreamInfo{}, nil)
-	mockBus.On("EnsureConsumer", mock.Anything, mock.Anything).Return(&nats.ConsumerInfo{}, nil)
-	mockBus.On("PullSubscribe", mock.Anything, mock.Anything, mock.Anything).Return(&nats.Subscription{}, nil)
-	// Consume blocks until ctx cancel.
-	// But we expect run to return error from srvErr.
-	mockBus.On("Consume", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mockBus.On("Close").Return()
+
+	origConnect := busConnect
+	busConnect = func(cfg bus.Config) (BusClient, error) {
+		return mockBus, nil
+	}
+	defer func() { busConnect = origConnect }()
+
+	origInit := initTelemetryFunc
+	initTelemetryFunc = func(ctx context.Context) (func(context.Context) error, error) {
+		return func(context.Context) error { return nil }, nil
+	}
+	defer func() { initTelemetryFunc = origInit }()
+
+	origListen := netListen
+	netListen = func(network, address string) (net.Listener, error) {
+		return nil, errors.New("listen fail")
+	}
+	defer func() { netListen = origListen }()
 
 	err := run(context.Background())
 	if err == nil {
-		t.Error("expected error from listen fail, got nil")
+		t.Error("expected error, got nil")
 	}
 }

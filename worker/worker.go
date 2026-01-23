@@ -30,9 +30,13 @@ type Publisher interface {
 // CheckFunc is a function that performs an HTTP check.
 type CheckFunc func(ctx context.Context, url, method string) (int, int64, error)
 
+type Subscription interface {
+	Fetch(batch int, opts ...nats.PullOpt) ([]*nats.Msg, error)
+}
+
 type prioritySub struct {
 	subject string
-	sub     *nats.Subscription
+	sub     Subscription
 }
 
 func dispatchLoop(ctx context.Context, subs []prioritySub, out chan<- *nats.Msg) {
@@ -65,7 +69,7 @@ func dispatchLoop(ctx context.Context, subs []prioritySub, out chan<- *nats.Msg)
 	}
 }
 
-func fetchOne(sub *nats.Subscription, wait time.Duration) (*nats.Msg, error) {
+func fetchOne(sub Subscription, wait time.Duration) (*nats.Msg, error) {
 	msgs, err := sub.Fetch(1, nats.MaxWait(wait))
 	if err != nil {
 		if errors.Is(err, nats.ErrTimeout) {

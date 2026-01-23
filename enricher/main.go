@@ -16,12 +16,20 @@ import (
 )
 
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	if err := run(context.Background()); err != nil {
+		log.Fatalf("enricher run failed: %v", err)
+	}
+}
+
+var initTelemetryFunc = initTelemetry
+
+func run(ctx context.Context) error {
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	shutdown, err := initTelemetry(ctx)
+	shutdown, err := initTelemetryFunc(ctx)
 	if err != nil {
-		log.Fatalf("telemetry init failed: %v", err)
+		return err
 	}
 	defer shutdown(ctx)
 
@@ -34,21 +42,28 @@ func main() {
 		Handler: mux,
 	}
 
+	srvErr := make(chan error, 1)
 	go func() {
 		log.Printf("enricher listening on %s", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("enricher server failed: %v", err)
+			srvErr <- err
 		}
+		close(srvErr)
 	}()
 
-	<-ctx.Done()
-	log.Println("Shutting down enricher...")
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer shutdownCancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("enricher shutdown error: %v", err)
+	select {
+	case <-ctx.Done():
+		log.Println("Shutting down enricher...")
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return err
+		}
+		log.Println("Enricher stopped.")
+		return nil
+	case err := <-srvErr:
+		return err
 	}
-	log.Println("Enricher stopped.")
 }
 
 func handleEnrich(w http.ResponseWriter, r *http.Request) {

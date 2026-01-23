@@ -18,32 +18,56 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+type BusClient interface {
+	Close()
+	EnsureStream(cfg *nats.StreamConfig) (*nats.StreamInfo, error)
+	EnsureConsumer(stream string, cfg *nats.ConsumerConfig) (*nats.ConsumerInfo, error)
+	PullSubscribe(subject, durable string, opts ...nats.SubOpt) (*nats.Subscription, error)
+	Consume(ctx context.Context, sub *nats.Subscription, opts bus.ConsumeOptions, handler bus.Handler) error
+}
+
+var (
+	busConnect = func(cfg bus.Config) (BusClient, error) {
+		return bus.Connect(cfg)
+	}
+	initTelemetryFunc = initTelemetry
+)
+
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	if err := run(context.Background()); err != nil {
+		log.Fatalf("deadletter run failed: %v", err)
+	}
+}
+
+func run(ctx context.Context) error {
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	shutdown, err := initTelemetry(ctx)
+	shutdown, err := initTelemetryFunc(ctx)
 	if err != nil {
-		log.Fatalf("telemetry init failed: %v", err)
+		return err
 	}
 	defer shutdown(ctx)
 
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr()})
-	busClient, err := bus.Connect(bus.Config{URL: natsURL(), Name: "deadletter"})
+	defer rdb.Close()
+
+	busClient, err := busConnect(bus.Config{URL: natsURL(), Name: "deadletter"})
 	if err != nil {
-		log.Fatalf("nats connect failed: %v", err)
+		return err
 	}
 	defer busClient.Close()
+
 	if _, err := busClient.EnsureStream(bus.EventsStreamConfig()); err != nil {
-		log.Fatalf("nats stream setup failed: %v", err)
+		return err
 	}
 	consumerCfg := bus.DefaultConsumerConfig(bus.DurableName(bus.StreamEvents, "deadletter"), bus.SubjectEventDeadLetter)
 	if _, err := busClient.EnsureConsumer(bus.StreamEvents, consumerCfg); err != nil {
-		log.Fatalf("nats consumer setup failed: %v", err)
+		return err
 	}
 	sub, err := busClient.PullSubscribe(bus.SubjectEventDeadLetter, consumerCfg.Durable)
 	if err != nil {
-		log.Fatalf("nats subscribe failed: %v", err)
+		return err
 	}
 	tracer := otel.Tracer("deadletter")
 	service := NewDeadLetterService(rdb, tracer)
@@ -75,8 +99,9 @@ func main() {
 		ackMessage("deadletter", msg)
 		return nil
 	}); err != nil && err != context.Canceled {
-		log.Fatalf("deadletter consume failed: %v", err)
+		return err
 	}
+	return nil
 }
 
 func redisAddr() string {
@@ -130,3 +155,14 @@ func nakMessage(service string, msg *nats.Msg) {
 		log.Printf("%s: nak failed: %v", service, err)
 	}
 }
+
+// Wrapper for testing
+type NatsMessage struct {
+	Msg *nats.Msg
+}
+// We don't use the interface in Persist yet? `service.Persist` signature?
+// `service.go`: func (s *DeadLetterService) Persist(ctx context.Context, entry flow.DeadLetter, msg Message) error
+// Message interface was used in tests but `main` passed `nil` or `*nats.Msg`?
+// In `read_file` output: `service.Persist(parentCtx, entry, msg)` where `msg` is `*nats.Msg`.
+// So `DeadLetterService.Persist` expects something compatible.
+// I'll check `deadletter/service.go`.

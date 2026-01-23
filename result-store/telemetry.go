@@ -52,8 +52,9 @@ func initTelemetry(ctx context.Context) (func(context.Context) error, error) {
 	otel.SetMeterProvider(mp)
 
 	go func() {
-		http.Handle("/metrics", promhttp.Handler())
-		if err := http.ListenAndServe(":"+metricsPort(), nil); err != nil {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		if err := listenAndServe(":"+metricsPort(), mux); err != nil {
 			log.Printf("prometheus endpoint error: %v", err)
 		}
 	}()
