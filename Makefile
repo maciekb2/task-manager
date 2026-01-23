@@ -62,7 +62,7 @@ k8s-delete:
 
 all: build k8s-apply
 
-MODULES = enricher client worker server result-store deadletter scheduler notifier audit ingest
+MODULES = enricher client worker server result-store deadletter scheduler notifier audit ingest visualizer
 
 test-all:
 	@for dir in $(MODULES); do \

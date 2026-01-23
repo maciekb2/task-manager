@@ -15,18 +15,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-type enrichRequest struct {
-	TaskDescription string `json:"task_description"`
-	Priority        int32  `json:"priority"`
-	URL             string `json:"url"`
-	Method          string `json:"method"`
-}
-
-type enrichResponse struct {
-	Category string `json:"category"`
-	Score    int32  `json:"score"`
-}
-
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -73,7 +61,7 @@ func handleEnrich(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req enrichRequest
+	var req EnrichRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -84,18 +72,12 @@ func handleEnrich(w http.ResponseWriter, r *http.Request) {
 		attribute.String("task.method", req.Method),
 	)
 
-	category := "low"
-	if req.Priority >= 2 {
-		category = "high"
-	} else if req.Priority == 1 {
-		category = "medium"
-	}
+	svc := NewEnricherService()
+	resp := svc.Enrich(req)
 
-	score := int32(len(req.URL)) + req.Priority*100
-	resp := enrichResponse{Category: category, Score: score}
 	span.SetAttributes(
-		attribute.String("task.category", category),
-		attribute.Int64("task.score", int64(score)),
+		attribute.String("task.category", resp.Category),
+		attribute.Int64("task.score", int64(resp.Score)),
 	)
 
 	w.Header().Set("Content-Type", "application/json")

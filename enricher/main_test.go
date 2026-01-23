@@ -20,7 +20,7 @@ func TestHandleEnrich(t *testing.T) {
 		{
 			name:   "High Priority",
 			method: http.MethodPost,
-			body: enrichRequest{
+			body: EnrichRequest{
 				Priority: 2,
 				URL:      "http://example.com", // len 18
 			},
@@ -31,7 +31,7 @@ func TestHandleEnrich(t *testing.T) {
 		{
 			name:   "Medium Priority",
 			method: http.MethodPost,
-			body: enrichRequest{
+			body: EnrichRequest{
 				Priority: 1,
 				URL:      "http://a.com", // len 12
 			},
@@ -42,7 +42,7 @@ func TestHandleEnrich(t *testing.T) {
 		{
 			name:   "Low Priority",
 			method: http.MethodPost,
-			body: enrichRequest{
+			body: EnrichRequest{
 				Priority: 0,
 				URL:      "http://b.com", // len 12
 			},
@@ -89,7 +89,7 @@ func TestHandleEnrich(t *testing.T) {
 			}
 
 			if tc.expectedStatus == http.StatusOK {
-				var resp enrichResponse
+				var resp EnrichResponse
 				if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 					t.Fatalf("failed to decode response: %v", err)
 				}
