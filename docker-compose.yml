@@ -24,7 +24,7 @@ services:
       - taskmanager-net
 
   tempo:
-    image: public.ecr.aws/grafana/tempo:2.3.0
+    image: grafana/tempo:2.3.0
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     restart: unless-stopped
     volumes:
