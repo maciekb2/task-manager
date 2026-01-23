@@ -38,6 +38,7 @@
 <script type="text/javascript">
     // --- Topology Definition ---
     const nodes = new vis.DataSet([
+        { id: 'client', label: 'Client\n(Producer)', shape: 'ellipse', color: '#673ab7', font: {color:'#fff'} },
         { id: 'gateway', label: 'Gateway\n(gRPC)', shape: 'hexagon', color: '#4caf50', font: {color:'#fff'} },
         { id: 'ingest', label: 'Ingest', shape: 'box', color: '#ff9800', font: {color:'#fff'} },
         { id: 'enricher', label: 'Enricher', shape: 'ellipse', color: '#9c27b0', font: {color:'#fff'} },
@@ -51,6 +52,9 @@
 
     const edges = new vis.DataSet([
         // Logical Flows
+        { id: 'e-cl-gw', from: 'client', to: 'gateway', arrows: 'to', length: 250, label: 'Submit Task' },
+        { id: 'e-gw-cl', from: 'gateway', to: 'client', arrows: 'to', dashes: true, color: {color:'#bbb'}, label: 'Status Stream' },
+
         { id: 'e-gw-in', from: 'gateway', to: 'ingest', arrows: 'to', length: 200 },
         { id: 'e-in-en', from: 'ingest', to: 'enricher', arrows: 'to,from', dashes: true, label: 'HTTP' },
         { id: 'e-in-sc', from: 'ingest', to: 'scheduler', arrows: 'to', length: 200 },
@@ -125,7 +129,8 @@
 
         // Visual "packet" animation logic
         if (subject === 'tasks.ingest') {
-            animateTraffic('gateway', 'ingest');
+            animateTraffic('client', 'gateway');
+            setTimeout(() => animateTraffic('gateway', 'ingest'), 100);
             totalTasks++;
             activeTasks++;
             updateStats();
@@ -139,6 +144,9 @@
             updateStats();
         } else if (subject === 'events.status') {
             // "data": {"task_id":"...","status":"...","source":"..."}
+            // Propagate status back to client
+            animateTraffic('gateway', 'client');
+
             if (payload && payload.status === 'ENRICHED') {
                 animateTraffic('ingest', 'enricher'); // and back?
             }
