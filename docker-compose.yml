@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   otel-collector:
-    image: public.ecr.aws/otel/opentelemetry-collector-contrib:0.93.0
+    image: otel/opentelemetry-collector-contrib:0.93.0
     command: ["--config=/etc/otelcol/config.yaml"]
     restart: unless-stopped
     volumes:
@@ -38,7 +38,7 @@ services:
       - taskmanager-net
 
   loki:
-    image: public.ecr.aws/grafana/loki:2.9.4
+    image: grafana/loki:2.9.4
     command: ["-config.file=/etc/loki/loki-config.yaml"]
     hostname: loki
     restart: unless-stopped
@@ -52,7 +52,7 @@ services:
       - taskmanager-net
 
   promtail:
-    image: public.ecr.aws/grafana/promtail:2.9.4
+    image: grafana/promtail:2.9.4
     command: ["-config.file=/etc/promtail/promtail-config.yaml"]
     restart: unless-stopped
     volumes:
