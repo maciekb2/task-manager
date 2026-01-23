@@ -16,6 +16,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
+	"github.com/nats-io/nats.go"
 	pb "github.com/maciekb2/task-manager/proto"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -25,13 +26,17 @@ import (
 	"google.golang.org/grpc"
 )
 
+type EventBus interface {
+	PublishJSON(ctx context.Context, subject string, payload any, headers nats.Header, opts ...nats.PubOpt) (*nats.PubAck, error)
+}
+
 type server struct {
 	pb.UnimplementedTaskManagerServer
 	rdb *redis.Client
-	bus *bus.Client
+	bus EventBus
 }
 
-func newServer(rdb *redis.Client, busClient *bus.Client) *server {
+func newServer(rdb *redis.Client, busClient EventBus) *server {
 	return &server{
 		rdb: rdb,
 		bus: busClient,
