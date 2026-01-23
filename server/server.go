@@ -17,6 +17,7 @@ import (
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
 	pb "github.com/maciekb2/task-manager/proto"
+	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
@@ -25,13 +26,17 @@ import (
 	"google.golang.org/grpc"
 )
 
+type BusClient interface {
+	PublishJSON(ctx context.Context, subject string, payload any, headers nats.Header, opts ...nats.PubOpt) (*nats.PubAck, error)
+}
+
 type server struct {
 	pb.UnimplementedTaskManagerServer
 	rdb *redis.Client
-	bus *bus.Client
+	bus BusClient
 }
 
-func newServer(rdb *redis.Client, busClient *bus.Client) *server {
+func newServer(rdb *redis.Client, busClient BusClient) *server {
 	return &server{
 		rdb: rdb,
 		bus: busClient,
@@ -164,6 +169,9 @@ func (s *server) StreamTaskStatus(req *pb.StatusRequest, stream pb.TaskManager_S
 	if status, err := s.rdb.HGet(ctx, statusKey, "status").Result(); err == nil {
 		if err := stream.Send(&pb.StatusResponse{Status: status}); err != nil {
 			return err
+		}
+		if status == "COMPLETED" || status == "FAILED" {
+			return nil
 		}
 	}
 
