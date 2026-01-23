@@ -11,7 +11,7 @@ services:
       - taskmanager-net
 
   prometheus:
-    image: public.ecr.aws/prometheus/prometheus:v2.49.1
+    image: quay.io/prometheus/prometheus:v2.49.1
     command: ["--config.file=/etc/prometheus/prometheus.yaml"]
     restart: unless-stopped
     volumes:
@@ -66,7 +66,7 @@ services:
       - taskmanager-net
 
   grafana:
-    image: public.ecr.aws/grafana/grafana:10.4.2
+    image: grafana/grafana:10.4.2
     restart: unless-stopped
     depends_on:
       - otel-collector
