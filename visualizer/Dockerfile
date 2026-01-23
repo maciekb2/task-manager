@@ -1,4 +1,4 @@
-FROM golang:1.21-alpine AS builder
+FROM public.ecr.aws/docker/library/golang:1.21-alpine AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -14,7 +14,7 @@ RUN go mod download
 COPY . .
 RUN go build -o visualizer main.go
 
-FROM alpine:latest
+FROM public.ecr.aws/docker/library/alpine:latest
 WORKDIR /app
 COPY --from=builder /app/visualizer .
 COPY --from=builder /app/static ./static

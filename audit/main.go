@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"time"
@@ -12,9 +12,6 @@ import (
 	"github.com/maciekb2/task-manager/pkg/flow"
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/trace"
 )
 
 func main() {
@@ -44,48 +41,25 @@ func main() {
 	}
 	tracer := otel.Tracer("audit")
 
+	processor := &AuditProcessor{
+		RDB:    rdb,
+		Tracer: tracer,
+	}
+
 	if err := busClient.Consume(ctx, sub, bus.ConsumeOptions{Batch: 10, MaxWait: 5 * time.Second, DisableAutoAck: true}, func(msgCtx context.Context, msg *nats.Msg) error {
-		var event flow.AuditEvent
-		if err := json.Unmarshal(msg.Data, &event); err != nil {
-			log.Printf("audit: bad payload: %v", err)
-			handleEventFailure(msgCtx, busClient, msg, flow.TaskEnvelope{}, "bad payload", false)
-			return nil
-		}
-
-		if event.TraceParent == "" {
-			event.TraceParent = traceparentFromContext(msgCtx)
-		}
-
-		parentCtx := msgCtx
-		if !trace.SpanContextFromContext(parentCtx).IsValid() && event.TraceParent != "" {
-			parentCtx = contextFromTraceParent(event.TraceParent)
-		}
-		ctxSpan, span := tracer.Start(parentCtx, "audit.persist")
-		bus.AnnotateSpan(span, msg)
-		span.SetAttributes(
-			attribute.String("task.id", event.TaskID),
-			attribute.String("audit.event", event.Event),
-			attribute.String("audit.source", event.Source),
-			attribute.String("queue.name", bus.SubjectEventAudit),
-		)
-
-		payload, err := json.Marshal(event)
+		envelope, err := processor.Process(msgCtx, msg)
 		if err != nil {
-			log.Printf("audit: marshal failed: %v", err)
-			span.End()
+			retry := true
+			reason := "audit persist failed"
+			if errors.Is(err, ErrBadPayload) {
+				log.Printf("audit: bad payload: %v", err)
+				retry = false
+				reason = "bad payload"
+			}
+			handleEventFailure(msgCtx, busClient, msg, envelope, reason, retry)
 			return nil
 		}
 
-		if err := rdb.RPush(ctxSpan, "audit_events", payload).Err(); err != nil {
-			log.Printf("audit: persist failed: %v", err)
-			span.RecordError(err)
-			span.End()
-			handleEventFailure(msgCtx, busClient, msg, flow.TaskEnvelope{TaskID: event.TaskID, TraceParent: event.TraceParent}, "audit persist failed", true)
-			return nil
-		}
-
-		log.Printf("audit: %s %s", event.Event, event.TaskID)
-		span.End()
 		ackMessage("audit", msg)
 		return nil
 	}); err != nil {
@@ -105,17 +79,6 @@ func natsURL() string {
 		return addr
 	}
 	return bus.DefaultURL
-}
-
-func contextFromTraceParent(traceParent string) context.Context {
-	carrier := propagation.MapCarrier{"traceparent": traceParent}
-	return otel.GetTextMapPropagator().Extract(context.Background(), carrier)
-}
-
-func traceparentFromContext(ctx context.Context) string {
-	carrier := propagation.MapCarrier{}
-	otel.GetTextMapPropagator().Inject(ctx, carrier)
-	return carrier["traceparent"]
 }
 
 func handleEventFailure(ctx context.Context, busClient *bus.Client, msg *nats.Msg, task flow.TaskEnvelope, reason string, retry bool) {
