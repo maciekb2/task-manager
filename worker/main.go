@@ -137,6 +137,7 @@ func fetchBatch(sub *nats.Subscription, batchSize int, wait time.Duration) ([]*n
 
 func processLoop(ctx context.Context, busClient *bus.Client, jobs <-chan *nats.Msg, workerID int, failRate float64) {
 	tracer := otel.Tracer("worker")
+	rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(workerID)))
 	for {
 		select {
 		case <-ctx.Done():
@@ -183,7 +184,7 @@ func processLoop(ctx context.Context, busClient *bus.Client, jobs <-chan *nats.M
 			})
 
 			checksum, iterations := simulateWork(task.Number1, task.Number2, task.Priority)
-			ioDelay := time.Duration(200+rand.Intn(400)) * time.Millisecond
+			ioDelay := time.Duration(200+rng.Intn(400)) * time.Millisecond
 			time.Sleep(ioDelay)
 			span.SetAttributes(
 				attribute.Int("task.work.iterations", iterations),
@@ -192,7 +193,7 @@ func processLoop(ctx context.Context, busClient *bus.Client, jobs <-chan *nats.M
 				attribute.Float64("task.simulated_io_ms", float64(ioDelay.Milliseconds())),
 			)
 
-			if rand.Float64() < failRate {
+			if rng.Float64() < failRate {
 				log.Printf("worker %d: task %s failed", workerID, task.TaskID)
 				span.SetAttributes(attribute.String("task.outcome", "failed"))
 				enqueueStatus(ctxTask, busClient, task, "FAILED", "worker")
