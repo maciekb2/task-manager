@@ -80,11 +80,11 @@ func producerLoop(client pb.TaskManagerClient, jobs <-chan struct{}, workerID in
 		method := generateMethod()
 		description := randomTaskDescription()
 		priority := randomPriority()
-		sendTaskWithURL(client, workerID, description, priority, url, method)
+		SendTaskWithURL(client, workerID, description, priority, url, method)
 	}
 }
 
-func sendTaskWithURL(client pb.TaskManagerClient, workerID int, description string, priority pb.TaskPriority, url, method string) {
+func SendTaskWithURL(client pb.TaskManagerClient, workerID int, description string, priority pb.TaskPriority, url, method string) {
 	tracer := otel.Tracer("client")
 	ctx, span := tracer.Start(context.Background(), "client.submit")
 	idempotencyKey := generateIdempotencyKey()
