@@ -120,7 +120,7 @@ services:
       - taskmanager-net
 
   envoy:
-    image: public.ecr.aws/envoyproxy/envoy:v1.30.2
+    image: envoyproxy/envoy:v1.30.2
     command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
     restart: unless-stopped
     volumes:
