@@ -16,6 +16,11 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
+        go-version: '1.23.3'
+
+    - name: Test Notifier
+      working-directory: ./notifier
+      run: go test -v ./...
         go-version: '1.23'
 
     - name: Test Enricher
