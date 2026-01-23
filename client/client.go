@@ -75,11 +75,12 @@ func connectToServer(ctx context.Context) *grpc.ClientConn {
 }
 
 func producerLoop(client pb.TaskManagerClient, jobs <-chan struct{}, workerID int) {
+	rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(workerID)))
 	for range jobs {
-		number1 := generateNumber1()
-		number2 := generateNumber2()
-		description := randomTaskDescription()
-		priority := randomPriority()
+		number1 := generateNumber1(rng)
+		number2 := generateNumber2(rng)
+		description := randomTaskDescription(rng)
+		priority := randomPriority(rng)
 		sendTaskWithNumbers(client, workerID, description, priority, number1, number2)
 	}
 }
@@ -151,13 +152,14 @@ func serverAddr() string {
 	return "taskmanager-service:50051"
 }
 
-func randomTaskDescription() string {
-	descriptions := []string{"Task A", "Task B", "Task C", "Critical Fix", "Routine Check"}
-	return descriptions[rand.Intn(len(descriptions))]
+var descriptions = []string{"Task A", "Task B", "Task C", "Critical Fix", "Routine Check"}
+
+func randomTaskDescription(rng *rand.Rand) string {
+	return descriptions[rng.Intn(len(descriptions))]
 }
 
-func randomPriority() pb.TaskPriority {
-	random := rand.Intn(3)
+func randomPriority(rng *rand.Rand) pb.TaskPriority {
+	random := rng.Intn(3)
 	switch random {
 	case 0:
 		return pb.TaskPriority_LOW
@@ -168,12 +170,12 @@ func randomPriority() pb.TaskPriority {
 	}
 }
 
-func generateNumber1() int {
-	return rand.Intn(8096-1024) + 1024
+func generateNumber1(rng *rand.Rand) int {
+	return rng.Intn(8096-1024) + 1024
 }
 
-func generateNumber2() int {
-	return rand.Intn(8096-1024) + 1024
+func generateNumber2(rng *rand.Rand) int {
+	return rng.Intn(8096-1024) + 1024
 }
 
 func generateIdempotencyKey() string {
