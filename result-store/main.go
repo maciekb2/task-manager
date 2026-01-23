@@ -6,7 +6,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -35,7 +37,9 @@ type BusClient interface {
 }
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
 		log.Fatalf("telemetry init failed: %v", err)
@@ -47,7 +51,7 @@ func main() {
 	}
 
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr()})
-	go startHTTPServer(rdb)
+	srv := startHTTPServer(rdb)
 	busClient, err := bus.Connect(bus.Config{URL: natsURL(), Name: "result-store"})
 	if err != nil {
 		log.Fatalf("nats connect failed: %v", err)
@@ -71,9 +75,17 @@ func main() {
 	tracer := otel.Tracer("result-store")
 	if err := busClient.Consume(ctx, sub, bus.ConsumeOptions{Batch: 5, MaxWait: 5 * time.Second, DisableAutoAck: true}, func(msgCtx context.Context, msg *nats.Msg) error {
 		return ProcessMessage(msgCtx, msg, rdb, busClient, tracer, metrics)
-	}); err != nil {
+	}); err != nil && err != context.Canceled {
 		log.Fatalf("result-store consume failed: %v", err)
 	}
+
+	log.Println("Shutting down result-store http...")
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("result-store http shutdown error: %v", err)
+	}
+	log.Println("Result-store stopped.")
 }
 
 func ProcessMessage(msgCtx context.Context, msg *nats.Msg, rdb *redis.Client, busClient BusClient, tracer trace.Tracer, metrics resultStoreMetrics) error {
@@ -169,7 +181,7 @@ func recordE2ELatency(ctx context.Context, metrics resultStoreMetrics, result fl
 	}
 }
 
-func startHTTPServer(rdb *redis.Client) {
+func startHTTPServer(rdb *redis.Client) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/results/", func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(r.URL.Path, "/results/")
@@ -193,10 +205,14 @@ func startHTTPServer(rdb *redis.Client) {
 	})
 
 	addr := ":" + resultPort()
-	log.Printf("result-store http listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Printf("result-store http failed: %v", err)
-	}
+	srv := &http.Server{Addr: addr, Handler: mux}
+	go func() {
+		log.Printf("result-store http listening on %s", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("result-store http failed: %v", err)
+		}
+	}()
+	return srv
 }
 
 func enqueueAudit(ctx context.Context, busClient BusClient, event flow.AuditEvent) error {

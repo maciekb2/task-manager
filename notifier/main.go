@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -13,7 +15,9 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
 		log.Fatalf("telemetry init failed: %v", err)
@@ -43,7 +47,7 @@ func main() {
 
 	if err := busClient.Consume(ctx, sub, bus.ConsumeOptions{Batch: 10, MaxWait: 5 * time.Second, DisableAutoAck: true}, func(msgCtx context.Context, msg *nats.Msg) error {
 		return notifier.HandleMessage(msgCtx, &NatsMessageAdapter{Msg: msg})
-	}); err != nil {
+	}); err != nil && err != context.Canceled {
 		log.Fatalf("notifier consume failed: %v", err)
 	}
 }

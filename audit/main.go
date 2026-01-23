@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -15,7 +17,9 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
 		log.Fatalf("telemetry init failed: %v", err)
@@ -62,7 +66,7 @@ func main() {
 
 		ackMessage("audit", msg)
 		return nil
-	}); err != nil {
+	}); err != nil && err != context.Canceled {
 		log.Fatalf("audit consume failed: %v", err)
 	}
 }

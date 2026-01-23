@@ -8,8 +8,10 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/maciekb2/task-manager/pkg/bus"
@@ -23,7 +25,9 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
 		log.Fatalf("telemetry init failed: %v", err)
@@ -82,7 +86,10 @@ func main() {
 		go processLoop(ctx, busClient, jobs, workerID, failRate)
 	}
 
-	select {}
+	<-ctx.Done()
+	log.Println("Shutting down worker...")
+	time.Sleep(time.Second)
+	log.Println("Worker stopped.")
 }
 
 type prioritySub struct {

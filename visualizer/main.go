@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -128,6 +131,23 @@ func main() {
 		hub.register <- conn
 	})
 
-	log.Println("Visualizer started on :8085")
-	log.Fatal(http.ListenAndServe(":8085", nil))
+	srv := &http.Server{Addr: ":8085"}
+	go func() {
+		log.Println("Visualizer started on :8085")
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("visualizer server failed: %v", err)
+		}
+	}()
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	<-ctx.Done()
+
+	log.Println("Shutting down visualizer...")
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("visualizer shutdown error: %v", err)
+	}
+	log.Println("Visualizer stopped.")
 }

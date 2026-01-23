@@ -6,6 +6,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
@@ -25,7 +28,9 @@ type enrichResponse struct {
 }
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
 		log.Fatalf("telemetry init failed: %v", err)
@@ -36,10 +41,26 @@ func main() {
 	mux.Handle("/enrich", otelhttp.NewHandler(http.HandlerFunc(handleEnrich), "enricher.http"))
 
 	addr := ":" + port()
-	log.Printf("enricher listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("enricher server failed: %v", err)
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: mux,
 	}
+
+	go func() {
+		log.Printf("enricher listening on %s", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("enricher server failed: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Println("Shutting down enricher...")
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("enricher shutdown error: %v", err)
+	}
+	log.Println("Enricher stopped.")
 }
 
 func handleEnrich(w http.ResponseWriter, r *http.Request) {

@@ -7,7 +7,9 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,7 +21,9 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
 		log.Fatalf("telemetry init failed: %v", err)
@@ -49,8 +53,19 @@ func main() {
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	for range ticker.C {
-		jobs <- struct{}{}
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Shutting down client...")
+			return
+		case <-ticker.C:
+			select {
+			case jobs <- struct{}{}:
+			case <-ctx.Done():
+				log.Println("Shutting down client...")
+				return
+			}
+		}
 	}
 }
 
