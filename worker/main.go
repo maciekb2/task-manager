@@ -66,14 +66,15 @@ func main() {
 	}
 
 	count := workerCount()
+	batchSize := workerBatchSize()
 	failRate := workerFailRate()
-	log.Printf("worker: starting %d workers (fail rate %.2f)", count, failRate)
+	log.Printf("worker: starting %d workers (batch size %d, fail rate %.2f)", count, batchSize, failRate)
 	jobs := make(chan *nats.Msg, count*2)
 	go dispatchLoop(ctx, []prioritySub{
 		{subject: bus.SubjectTaskWorkerHigh, sub: highSub},
 		{subject: bus.SubjectTaskWorkerMedium, sub: mediumSub},
 		{subject: bus.SubjectTaskWorkerLow, sub: lowSub},
-	}, jobs)
+	}, jobs, batchSize)
 
 	for i := 0; i < count; i++ {
 		workerID := i + 1
@@ -88,7 +89,7 @@ type prioritySub struct {
 	sub     *nats.Subscription
 }
 
-func dispatchLoop(ctx context.Context, subs []prioritySub, out chan<- *nats.Msg) {
+func dispatchLoop(ctx context.Context, subs []prioritySub, out chan<- *nats.Msg, batchSize int) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -98,17 +99,19 @@ func dispatchLoop(ctx context.Context, subs []prioritySub, out chan<- *nats.Msg)
 
 		dispatched := false
 		for _, entry := range subs {
-			msg, err := fetchOne(entry.sub, 300*time.Millisecond)
+			msgs, err := fetchBatch(entry.sub, batchSize, 300*time.Millisecond)
 			if err != nil {
 				log.Printf("worker: fetch from %s failed: %v", entry.subject, err)
 				time.Sleep(500 * time.Millisecond)
 				dispatched = true
 				break
 			}
-			if msg == nil {
+			if len(msgs) == 0 {
 				continue
 			}
-			out <- msg
+			for _, msg := range msgs {
+				out <- msg
+			}
 			dispatched = true
 			break
 		}
@@ -118,8 +121,8 @@ func dispatchLoop(ctx context.Context, subs []prioritySub, out chan<- *nats.Msg)
 	}
 }
 
-func fetchOne(sub *nats.Subscription, wait time.Duration) (*nats.Msg, error) {
-	msgs, err := sub.Fetch(1, nats.MaxWait(wait))
+func fetchBatch(sub *nats.Subscription, batchSize int, wait time.Duration) ([]*nats.Msg, error) {
+	msgs, err := sub.Fetch(batchSize, nats.MaxWait(wait))
 	if err != nil {
 		if errors.Is(err, nats.ErrTimeout) {
 			return nil, nil
@@ -129,10 +132,7 @@ func fetchOne(sub *nats.Subscription, wait time.Duration) (*nats.Msg, error) {
 		}
 		return nil, err
 	}
-	if len(msgs) == 0 {
-		return nil, nil
-	}
-	return msgs[0], nil
+	return msgs, nil
 }
 
 func processLoop(ctx context.Context, busClient *bus.Client, jobs <-chan *nats.Msg, workerID int, failRate float64) {
@@ -289,6 +289,20 @@ func workerCount() int {
 		return defaultWorkers
 	}
 	return count
+}
+
+func workerBatchSize() int {
+	const defaultBatchSize = 10
+	value := os.Getenv("WORKER_BATCH_SIZE")
+	if value == "" {
+		return defaultBatchSize
+	}
+	batchSize, err := strconv.Atoi(value)
+	if err != nil || batchSize < 1 {
+		log.Printf("worker: invalid WORKER_BATCH_SIZE=%q, using %d", value, defaultBatchSize)
+		return defaultBatchSize
+	}
+	return batchSize
 }
 
 func workerFailRate() float64 {
