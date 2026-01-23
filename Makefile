@@ -64,8 +64,13 @@ all: build k8s-apply
 
 MODULES = enricher client worker server result-store deadletter scheduler notifier audit ingest
 
-test-all:
+unit-tests:
 	@for dir in $(MODULES); do \
 		echo "Testing $$dir..."; \
 		(cd $$dir && go mod tidy && go test -v ./...) || exit 1; \
 	done
+
+e2e-tests:
+	docker compose up --build --exit-code-from e2e-tests
+
+test-all: unit-tests e2e-tests

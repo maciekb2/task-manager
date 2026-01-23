@@ -21,16 +21,10 @@ jobs:
           cache: false
 
       - name: Run Unit Tests
-        run: |
-          set -e
-          modules="enricher client worker server result-store deadletter scheduler notifier audit ingest"
-          for dir in $modules; do
-            echo "Testing $dir..."
-            (cd "$dir" && go mod tidy && go test -v ./...)
-          done
+        run: make unit-tests
 
       - name: Run E2E Tests
-        run: docker compose up --build --exit-code-from e2e-tests
+        run: make e2e-tests
 
       - name: Cleanup
         if: always()
