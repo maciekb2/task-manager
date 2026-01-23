@@ -86,7 +86,7 @@ services:
       - taskmanager-net
 
   redis-service:
-    image: redis:7-alpine
+    image: public.ecr.aws/docker/library/redis:7-alpine
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -96,7 +96,7 @@ services:
       - taskmanager-net
 
   nats:
-    image: nats:2.10.10
+    image: public.ecr.aws/docker/library/nats:2.10.10
     command: ["-c", "/etc/nats/nats.conf"]
     restart: unless-stopped
     volumes:
@@ -109,7 +109,7 @@ services:
       - taskmanager-net
 
   nats-exporter:
-    image: natsio/prometheus-nats-exporter:0.15.0
+    image: public.ecr.aws/bitnami/nats-exporter:latest
     command: ["-varz", "-connz", "-subz", "-jsz=all", "-serverz", "http://nats:8222"]
     restart: unless-stopped
     ports:
@@ -308,6 +308,17 @@ services:
       - "8085:8085"
     depends_on:
       - nats
+    networks:
+      - taskmanager-net
+
+  e2e-tests:
+    build:
+      context: .
+      dockerfile: tests/e2e/Dockerfile
+    environment:
+      - TASKMANAGER_ADDR=envoy:50051
+    depends_on:
+      - envoy
     networks:
       - taskmanager-net
 

@@ -62,5 +62,10 @@ k8s-delete:
 
 all: build k8s-apply
 
-test:
-	cd deadletter && go test -v ./...
+MODULES = enricher client worker server result-store deadletter scheduler notifier audit ingest
+
+test-all:
+	@for dir in $(MODULES); do \
+		echo "Testing $$dir..."; \
+		(cd $$dir && go mod tidy && go test -v ./...) || exit 1; \
+	done
