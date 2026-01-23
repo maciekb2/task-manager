@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/maciekb2/task-manager/pkg/logger"
 	"github.com/nats-io/nats.go"
 )
 
@@ -71,6 +72,8 @@ func (h *Hub) run() {
 }
 
 func main() {
+	logger.Setup("visualizer")
+
 	hub := newHub()
 	go hub.run()
 
@@ -88,14 +91,14 @@ func main() {
 		if err == nil {
 			break
 		}
-		log.Printf("Waiting for NATS (%v)...", err)
+		slog.Info("Waiting for NATS...", "error", err)
 		time.Sleep(2 * time.Second)
 	}
 	if err != nil {
-		log.Fatal("Could not connect to NATS:", err)
+		logger.Fatal("Could not connect to NATS", err)
 	}
 	defer nc.Close()
-	log.Println("Connected to NATS")
+	slog.Info("Connected to NATS")
 
 	subjects := []string{"tasks.>", "events.>"}
 
@@ -117,7 +120,7 @@ func main() {
 			hub.broadcast <- event
 		})
 		if err != nil {
-			log.Printf("Error subscribing to %s: %v", subj, err)
+			logger.Error("Error subscribing", err, "subject", subj)
 		}
 	}
 
@@ -125,7 +128,7 @@ func main() {
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Println(err)
+			slog.Error("upgrade failed", "error", err)
 			return
 		}
 		hub.register <- conn
@@ -133,9 +136,9 @@ func main() {
 
 	srv := &http.Server{Addr: ":8085"}
 	go func() {
-		log.Println("Visualizer started on :8085")
+		slog.Info("Visualizer started on :8085")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("visualizer server failed: %v", err)
+			logger.Fatal("visualizer server failed", err)
 		}
 	}()
 
@@ -143,11 +146,11 @@ func main() {
 	defer cancel()
 	<-ctx.Done()
 
-	log.Println("Shutting down visualizer...")
+	slog.Info("Shutting down visualizer...")
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("visualizer shutdown error: %v", err)
+		logger.Error("visualizer shutdown error", err)
 	}
-	log.Println("Visualizer stopped.")
+	slog.Info("Visualizer stopped.")
 }

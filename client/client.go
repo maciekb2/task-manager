@@ -4,7 +4,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/maciekb2/task-manager/pkg/logger"
 	pb "github.com/maciekb2/task-manager/proto"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -21,12 +22,14 @@ import (
 )
 
 func main() {
+	logger.Setup("client")
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
-		log.Fatalf("telemetry init failed: %v", err)
+		logger.Fatal("telemetry init failed", err)
 	}
 	defer shutdown(ctx)
 
@@ -56,13 +59,13 @@ func main() {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Shutting down client...")
+			slog.Info("Shutting down client...")
 			return
 		case <-ticker.C:
 			select {
 			case jobs <- struct{}{}:
 			case <-ctx.Done():
-				log.Println("Shutting down client...")
+				slog.Info("Shutting down client...")
 				return
 			}
 		}
@@ -78,7 +81,7 @@ func connectToServer(ctx context.Context) *grpc.ClientConn {
 		if err == nil {
 			return conn
 		}
-		log.Printf("did not connect to %s: %v (retrying in %s)", target, err, backoff)
+		logger.Error("did not connect", err, "target", target, "retry_in", backoff)
 		time.Sleep(backoff)
 		if backoff < maxBackoff {
 			backoff *= 2
@@ -116,7 +119,7 @@ func SendTaskWithURL(client pb.TaskManagerClient, workerID int, description stri
 	defer cancel()
 	defer span.End()
 
-	log.Printf("Sending task: %s priority: %s url: %s method: %s (idempotency: %s, worker: %d)", description, priority, url, method, idempotencyKey, workerID)
+	slog.Info("Sending task", "description", description, "priority", priority, "url", url, "method", method, "idempotency", idempotencyKey, "worker", workerID)
 
 	res, err := client.SubmitTask(taskCtx, &pb.TaskRequest{
 		TaskDescription: description,
@@ -127,11 +130,11 @@ func SendTaskWithURL(client pb.TaskManagerClient, workerID int, description stri
 	})
 	if err != nil {
 		span.RecordError(err)
-		log.Printf("could not submit task: %v", err)
+		logger.Error("could not submit task", err)
 		return
 	}
 
-	log.Printf("Task submitted with ID: %s (worker: %d)", res.TaskId, workerID)
+	slog.Info("Task submitted", "task_id", res.TaskId, "worker_id", workerID)
 	streamTaskStatus(client, res.TaskId)
 }
 
@@ -141,18 +144,18 @@ func streamTaskStatus(client pb.TaskManagerClient, taskID string) {
 
 	stream, err := client.StreamTaskStatus(statusCtx, &pb.StatusRequest{TaskId: taskID})
 	if err != nil {
-		log.Printf("could not get status stream: %v", err)
+		logger.Error("could not get status stream", err)
 		return
 	}
 
-	log.Println("Waiting for status...")
+	slog.Info("Waiting for status...")
 	for {
 		status, err := stream.Recv()
 		if err != nil {
-			log.Printf("Stream ended: %v", err)
+			logger.Error("Stream ended", err)
 			break
 		}
-		log.Printf("Task status [%s]: %s", taskID, status.Status)
+		slog.Info("Task status", "task_id", taskID, "status", status.Status)
 		if status.Status == "COMPLETED" || status.Status == "FAILED" {
 			break
 		}
@@ -209,7 +212,7 @@ func producerRate() float64 {
 	}
 	rate, err := strconv.ParseFloat(value, 64)
 	if err != nil || rate <= 0 {
-		log.Printf("invalid PRODUCER_RATE=%q, using 1", value)
+		slog.Warn("invalid PRODUCER_RATE, using default", "value", value, "default", 1)
 		return 1
 	}
 	return rate
@@ -222,7 +225,7 @@ func producerConcurrency() int {
 	}
 	count, err := strconv.Atoi(value)
 	if err != nil || count < 1 {
-		log.Printf("invalid PRODUCER_CONCURRENCY=%q, using 1", value)
+		slog.Warn("invalid PRODUCER_CONCURRENCY, using default", "value", value, "default", 1)
 		return 1
 	}
 	return count

@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,36 +12,39 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
+	"github.com/maciekb2/task-manager/pkg/logger"
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel"
 )
 
 func main() {
+	logger.Setup("audit")
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
-		log.Fatalf("telemetry init failed: %v", err)
+		logger.Fatal("telemetry init failed", err)
 	}
 	defer shutdown(ctx)
 
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr()})
 	busClient, err := bus.Connect(bus.Config{URL: natsURL(), Name: "audit"})
 	if err != nil {
-		log.Fatalf("nats connect failed: %v", err)
+		logger.Fatal("nats connect failed", err)
 	}
 	defer busClient.Close()
 	if _, err := busClient.EnsureStream(bus.EventsStreamConfig()); err != nil {
-		log.Fatalf("nats stream setup failed: %v", err)
+		logger.Fatal("nats stream setup failed", err)
 	}
 	consumerCfg := bus.DefaultConsumerConfig(bus.DurableName(bus.StreamEvents, "audit"), bus.SubjectEventAudit)
 	if _, err := busClient.EnsureConsumer(bus.StreamEvents, consumerCfg); err != nil {
-		log.Fatalf("nats consumer setup failed: %v", err)
+		logger.Fatal("nats consumer setup failed", err)
 	}
 	sub, err := busClient.PullSubscribe(bus.SubjectEventAudit, consumerCfg.Durable)
 	if err != nil {
-		log.Fatalf("nats subscribe failed: %v", err)
+		logger.Fatal("nats subscribe failed", err)
 	}
 	tracer := otel.Tracer("audit")
 
@@ -56,7 +59,7 @@ func main() {
 			retry := true
 			reason := "audit persist failed"
 			if errors.Is(err, ErrBadPayload) {
-				log.Printf("audit: bad payload: %v", err)
+				slog.Error("audit: bad payload", "error", err)
 				retry = false
 				reason = "bad payload"
 			}
@@ -67,7 +70,7 @@ func main() {
 		ackMessage("audit", msg)
 		return nil
 	}); err != nil && err != context.Canceled {
-		log.Fatalf("audit consume failed: %v", err)
+		logger.Fatal("audit consume failed", err)
 	}
 }
 
@@ -107,7 +110,7 @@ func enqueueDeadLetter(ctx context.Context, busClient *bus.Client, task flow.Tas
 		Timestamp: flow.Now(),
 	}
 	if _, err := busClient.PublishJSON(ctx, bus.SubjectEventDeadLetter, entry, nil); err != nil {
-		log.Printf("audit: deadletter publish failed: %v", err)
+		logger.WithContext(ctx).Error("audit: deadletter publish failed", "error", err)
 	}
 }
 
@@ -116,7 +119,7 @@ func ackMessage(service string, msg *nats.Msg) {
 		return
 	}
 	if err := msg.Ack(); err != nil {
-		log.Printf("%s: ack failed: %v", service, err)
+		logger.Error("ack failed", err, "service", service)
 	}
 }
 
@@ -125,6 +128,6 @@ func nakMessage(service string, msg *nats.Msg) {
 		return
 	}
 	if err := msg.Nak(); err != nil {
-		log.Printf("%s: nak failed: %v", service, err)
+		logger.Error("nak failed", err, "service", service)
 	}
 }

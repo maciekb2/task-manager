@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,36 +9,39 @@ import (
 
 	"github.com/go-redis/redis/v8"
 	"github.com/maciekb2/task-manager/pkg/bus"
+	"github.com/maciekb2/task-manager/pkg/logger"
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel"
 )
 
 func main() {
+	logger.Setup("notifier")
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
-		log.Fatalf("telemetry init failed: %v", err)
+		logger.Fatal("telemetry init failed", err)
 	}
 	defer shutdown(ctx)
 
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr()})
 	busClient, err := bus.Connect(bus.Config{URL: natsURL(), Name: "notifier"})
 	if err != nil {
-		log.Fatalf("nats connect failed: %v", err)
+		logger.Fatal("nats connect failed", err)
 	}
 	defer busClient.Close()
 	if _, err := busClient.EnsureStream(bus.EventsStreamConfig()); err != nil {
-		log.Fatalf("nats stream setup failed: %v", err)
+		logger.Fatal("nats stream setup failed", err)
 	}
 	consumerCfg := bus.DefaultConsumerConfig(bus.DurableName(bus.StreamEvents, "notifier"), bus.SubjectEventStatus)
 	if _, err := busClient.EnsureConsumer(bus.StreamEvents, consumerCfg); err != nil {
-		log.Fatalf("nats consumer setup failed: %v", err)
+		logger.Fatal("nats consumer setup failed", err)
 	}
 	sub, err := busClient.PullSubscribe(bus.SubjectEventStatus, consumerCfg.Durable)
 	if err != nil {
-		log.Fatalf("nats subscribe failed: %v", err)
+		logger.Fatal("nats subscribe failed", err)
 	}
 	tracer := otel.Tracer("notifier")
 
@@ -48,7 +50,7 @@ func main() {
 	if err := busClient.Consume(ctx, sub, bus.ConsumeOptions{Batch: 10, MaxWait: 5 * time.Second, DisableAutoAck: true}, func(msgCtx context.Context, msg *nats.Msg) error {
 		return notifier.HandleMessage(msgCtx, &NatsMessageAdapter{Msg: msg})
 	}); err != nil && err != context.Canceled {
-		log.Fatalf("notifier consume failed: %v", err)
+		logger.Fatal("notifier consume failed", err)
 	}
 }
 

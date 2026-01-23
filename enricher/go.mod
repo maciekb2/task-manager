@@ -3,6 +3,7 @@ module github.com/maciekb2/task-manager/enricher
 go 1.23.3
 
 require (
+	github.com/maciekb2/task-manager v0.0.0-00010101000000-000000000000
 	github.com/prometheus/client_golang v1.17.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0

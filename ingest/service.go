@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"strings"
 
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
+	"github.com/maciekb2/task-manager/pkg/logger"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
@@ -31,7 +32,7 @@ func NewIngestService(pub Publisher, enricher Enricher) *IngestService {
 func (s *IngestService) ProcessMessage(msgCtx context.Context, msg Message) error {
 	var task flow.TaskEnvelope
 	if err := json.Unmarshal(msg.GetData(), &task); err != nil {
-		log.Printf("ingest: bad payload: %v", err)
+		slog.Error("ingest: bad payload", "error", err)
 		s.handleProcessingFailure(msgCtx, msg, flow.TaskEnvelope{}, "bad payload", false)
 		return nil
 	}
@@ -67,7 +68,7 @@ func (s *IngestService) ProcessMessage(msgCtx context.Context, msg Message) erro
 
 	enriched, err := s.enricher.Enrich(ctxTask, task)
 	if err != nil {
-		log.Printf("ingest: enrich failed: %v", err)
+		logger.WithContext(ctxTask).Error("ingest: enrich failed", "error", err)
 		span.RecordError(err)
 	} else {
 		task = enriched
@@ -80,7 +81,7 @@ func (s *IngestService) ProcessMessage(msgCtx context.Context, msg Message) erro
 
 	task.Attempt++
 	if _, err := s.pub.PublishJSON(ctxTask, bus.SubjectTaskSchedule, task, nil); err != nil {
-		log.Printf("ingest: publish schedule failed: %v", err)
+		logger.WithContext(ctxTask).Error("ingest: publish schedule failed", "error", err)
 		span.RecordError(err)
 		span.End()
 		s.handleProcessingFailure(msgCtx, msg, task, "publish schedule failed", true)
@@ -121,13 +122,13 @@ func (s *IngestService) enqueueStatus(ctx context.Context, task flow.TaskEnvelop
 		Source:      source,
 	}
 	if _, err := s.pub.PublishJSON(ctx, bus.SubjectEventStatus, update, nil); err != nil {
-		log.Printf("ingest: status publish failed: %v", err)
+		logger.WithContext(ctx).Error("ingest: status publish failed", "error", err)
 	}
 }
 
 func (s *IngestService) enqueueAudit(ctx context.Context, event flow.AuditEvent) {
 	if _, err := s.pub.PublishJSON(ctx, bus.SubjectEventAudit, event, nil); err != nil {
-		log.Printf("ingest: audit publish failed: %v", err)
+		logger.WithContext(ctx).Error("ingest: audit publish failed", "error", err)
 	}
 }
 
@@ -143,7 +144,7 @@ func (s *IngestService) enqueueDeadLetter(ctx context.Context, task flow.TaskEnv
 		Timestamp: flow.Now(),
 	}
 	if _, err := s.pub.PublishJSON(ctx, bus.SubjectEventDeadLetter, entry, nil); err != nil {
-		log.Printf("ingest: deadletter publish failed: %v", err)
+		logger.WithContext(ctx).Error("ingest: deadletter publish failed", "error", err)
 	}
 }
 
@@ -160,7 +161,7 @@ func (s *IngestService) ackMessage(msg Message) {
 		return
 	}
 	if err := msg.Ack(); err != nil {
-		log.Printf("ingest: ack failed: %v", err)
+		logger.Error("ingest: ack failed", err)
 	}
 }
 
@@ -169,7 +170,7 @@ func (s *IngestService) nakMessage(msg Message) {
 		return
 	}
 	if err := msg.Nak(); err != nil {
-		log.Printf("ingest: nak failed: %v", err)
+		logger.Error("ingest: nak failed", err)
 	}
 }
 

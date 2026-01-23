@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/maciekb2/task-manager/pkg/logger"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -28,12 +29,14 @@ type enrichResponse struct {
 }
 
 func main() {
+	logger.Setup("enricher")
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
-		log.Fatalf("telemetry init failed: %v", err)
+		logger.Fatal("telemetry init failed", err)
 	}
 	defer shutdown(ctx)
 
@@ -47,20 +50,20 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("enricher listening on %s", addr)
+		slog.Info("enricher listening", "addr", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("enricher server failed: %v", err)
+			logger.Fatal("enricher server failed", err)
 		}
 	}()
 
 	<-ctx.Done()
-	log.Println("Shutting down enricher...")
+	slog.Info("Shutting down enricher...")
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("enricher shutdown error: %v", err)
+		logger.Error("enricher shutdown error", err)
 	}
-	log.Println("Enricher stopped.")
+	slog.Info("Enricher stopped.")
 }
 
 func handleEnrich(w http.ResponseWriter, r *http.Request) {

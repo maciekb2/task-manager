@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os"
 
+	"github.com/maciekb2/task-manager/pkg/logger"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 
@@ -54,7 +54,7 @@ func initTelemetry(ctx context.Context) (func(context.Context) error, error) {
 	go func() {
 		http.Handle("/metrics", promhttp.Handler())
 		if err := http.ListenAndServe(":2222", nil); err != nil {
-			log.Printf("prometheus endpoint error: %v", err)
+			logger.Error("prometheus endpoint error", err)
 		}
 	}()
 
