@@ -47,7 +47,8 @@
         { id: 'result-store', label: 'Result Store', shape: 'database', color: '#00bcd4', font: {color:'#fff'} },
         { id: 'notifier', label: 'Notifier', shape: 'box', color: '#607d8b', font: {color:'#fff'} },
         { id: 'audit', label: 'Audit', shape: 'box', color: '#795548', font: {color:'#fff'} },
-        { id: 'deadletter', label: 'DeadLetter', shape: 'box', color: '#f44336', font: {color:'#fff'} }
+        { id: 'deadletter', label: 'DeadLetter', shape: 'box', color: '#f44336', font: {color:'#fff'} },
+        { id: 'redis', label: 'Redis\n(Persistence)', shape: 'database', color: '#d32f2f', font: {color:'#fff'} }
     ]);
 
     const edges = new vis.DataSet([
@@ -59,15 +60,26 @@
         { id: 'e-in-en', from: 'ingest', to: 'enricher', arrows: 'to,from', dashes: true, label: 'HTTP' },
         { id: 'e-in-sc', from: 'ingest', to: 'scheduler', arrows: 'to', length: 200 },
         { id: 'e-sc-wk', from: 'scheduler', to: 'worker', arrows: 'to', length: 200, label: 'Priority Queues' },
-        { id: 'e-wk-rs', from: 'worker', to: 'result-store', arrows: 'to' },
-        { id: 'e-wk-nt', from: 'worker', to: 'notifier', arrows: 'to', dashes: true }, // Assuming notifier listens to status
 
-        // Audit taps everything, but let's visually put it aside or connect to worker/gateway
-        { id: 'e-all-au', from: 'worker', to: 'audit', arrows: 'to', color: {color:'#555', opacity:0.3}, dashes: true },
+        { id: 'e-wk-rs', from: 'worker', to: 'result-store', arrows: 'to' },
+        { id: 'e-rs-rd', from: 'result-store', to: 'redis', arrows: 'to', dashes: true, color: {color:'#aaa'} },
+
+        // Notifier Flow (Status)
+        // Worker/Ingest -> Notifier -> Redis -> Gateway -> Client
+        { id: 'e-wk-nt', from: 'worker', to: 'notifier', arrows: 'to', dashes: true, color: {color: '#607d8b'} },
+        { id: 'e-in-nt', from: 'ingest', to: 'notifier', arrows: 'to', dashes: true, color: {color: '#607d8b', opacity: 0.3} },
+        { id: 'e-en-nt', from: 'enricher', to: 'notifier', arrows: 'to', dashes: true, color: {color: '#607d8b', opacity: 0.3} },
+        { id: 'e-nt-rd', from: 'notifier', to: 'redis', arrows: 'to', dashes: true, color: {color: '#607d8b'} },
+        { id: 'e-rd-gw', from: 'redis', to: 'gateway', arrows: 'to', dashes: true, color: {color: '#607d8b'} },
+
+        // Audit taps everything
+        { id: 'e-wk-au', from: 'worker', to: 'audit', arrows: 'to', color: {color:'#555', opacity:0.3}, dashes: true },
         { id: 'e-gw-au', from: 'gateway', to: 'audit', arrows: 'to', color: {color:'#555', opacity:0.3}, dashes: true },
+        { id: 'e-au-rd', from: 'audit', to: 'redis', arrows: 'to', dashes: true, color: {color: '#795548'} },
 
         // Deadletter
-        { id: 'e-wk-dl', from: 'worker', to: 'deadletter', arrows: 'to', color: {color:'#f44336'}, dashes: true }
+        { id: 'e-wk-dl', from: 'worker', to: 'deadletter', arrows: 'to', color: {color:'#f44336'}, dashes: true },
+        { id: 'e-dl-rd', from: 'deadletter', to: 'redis', arrows: 'to', dashes: true, color: {color:'#f44336'} }
     ]);
 
     const container = document.getElementById('mynetwork');
@@ -130,7 +142,7 @@
         // Visual "packet" animation logic
         if (subject === 'tasks.ingest') {
             animateTraffic('client', 'gateway');
-            setTimeout(() => animateTraffic('gateway', 'ingest'), 100);
+            setTimeout(() => animateTraffic('gateway', 'ingest'), 150);
             totalTasks++;
             activeTasks++;
             updateStats();
@@ -140,24 +152,40 @@
             animateTraffic('scheduler', 'worker');
         } else if (subject === 'tasks.results') {
             animateTraffic('worker', 'result-store');
+            setTimeout(() => animateTraffic('result-store', 'redis'), 150);
             activeTasks = Math.max(0, activeTasks - 1);
             updateStats();
         } else if (subject === 'events.status') {
-            // "data": {"task_id":"...","status":"...","source":"..."}
-            // Propagate status back to client
-            animateTraffic('gateway', 'client');
+            // Logic: Source -> Notifier -> Redis -> Gateway -> Client
+            const source = mapSourceToNode(payload.source);
+
+            animateTraffic(source, 'notifier');
+            setTimeout(() => animateTraffic('notifier', 'redis'), 150);
+            setTimeout(() => animateTraffic('redis', 'gateway'), 300);
+            setTimeout(() => animateTraffic('gateway', 'client'), 450);
 
             if (payload && payload.status === 'ENRICHED') {
-                animateTraffic('ingest', 'enricher'); // and back?
+                animateTraffic('ingest', 'enricher');
+                setTimeout(() => animateTraffic('enricher', 'ingest'), 200);
             }
             if (payload && payload.status === 'FAILED') {
                 activeTasks = Math.max(0, activeTasks - 1);
                 updateStats();
-                // Flash the source node red
-                flashNode(mapSourceToNode(payload.source), '#f44336');
+                flashNode(source, '#f44336');
             }
+        } else if (subject === 'events.audit') {
+            // Logic: Source -> Audit -> Redis
+            let source = 'worker'; // default
+            if (payload && payload.source) {
+                source = mapSourceToNode(payload.source);
+            }
+            animateTraffic(source, 'audit');
+            setTimeout(() => animateTraffic('audit', 'redis'), 150);
+
         } else if (subject === 'events.deadletter') {
-             animateTraffic('worker', 'deadletter'); // Or source -> deadletter
+             // Logic: Source -> Deadletter -> Redis
+             animateTraffic('worker', 'deadletter');
+             setTimeout(() => animateTraffic('deadletter', 'redis'), 150);
         }
     }
 
@@ -169,23 +197,16 @@
     function mapSourceToNode(source) {
         if (!source) return 'worker';
         if (source === 'gateway') return 'gateway';
-        return source; // usually matches id
+        if (source.toLowerCase().includes('worker')) return 'worker';
+        if (source.toLowerCase().includes('ingest')) return 'ingest';
+        return source;
     }
 
-    // --- Animation Helpers ---
-    // vis-network doesn't have built-in edge traversal animation.
-    // We can simulate it by adding a temporary node and moving it, or easier:
-    // Just flash the edge or use a specific edge animation library.
-    // However, for "Moving particles", we can hack it by using the 'traffic' module logic if we had it,
-    // OR we can just flash the edge color.
-    // A more advanced approach: Add a node on top of the edge position and move it.
-
     function animateTraffic(fromId, toId) {
-        // Simple visualization: Flash the edge
         // Find edge between them
         const edgeIds = edges.get({
             filter: function (item) {
-                return (item.from === fromId && item.to === toId);
+                return (item.from === fromId && item.to === toId) || (item.from === toId && item.to === fromId); // Bi-directional search
             }
         });
 
@@ -194,10 +215,16 @@
             const originalWidth = edges.get(edgeId).width || 2;
             const originalColor = edges.get(edgeId).color || {color:'#848484'};
 
+            // If it's the reverse direction (to -> from), we might want to animate differently,
+            // but for now just flashing the edge is sufficient.
+
             edges.update({id: edgeId, width: 5, color: {color: '#ffff00'}});
             setTimeout(() => {
                 edges.update({id: edgeId, width: originalWidth, color: originalColor});
             }, 300);
+        } else {
+             // If no direct edge exists (e.g. Ingest -> Notifier directly?), maybe don't animate or log it.
+             // With the current graph, we should have edges for all mapped flows.
         }
     }
 
