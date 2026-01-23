@@ -159,3 +159,48 @@ func TestProcessTask_PublishError_MaxRetriesExceeded(t *testing.T) {
 	publisher.AssertExpectations(t)
 	msg.AssertExpectations(t)
 }
+
+func TestProcessTask_PriorityRouting(t *testing.T) {
+	tests := []struct {
+		name     string
+		priority int32
+		expected string
+	}{
+		{"High Priority", 2, bus.SubjectTaskWorkerHigh},
+		{"Medium Priority", 1, bus.SubjectTaskWorkerMedium},
+		{"Low Priority", 0, bus.SubjectTaskWorkerLow},
+		{"Default (Unknown) Priority", 99, bus.SubjectTaskWorkerLow},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			publisher := new(MockBusPublisher)
+			svc := NewService(publisher)
+			msg := new(MockMessage)
+
+			task := flow.TaskEnvelope{
+				TaskID:   "123",
+				Priority: tt.priority,
+				URL:      "http://example.com",
+			}
+			data, _ := json.Marshal(task)
+
+			msg.On("GetData").Return(data)
+			msg.On("Ack").Return(nil)
+
+			// Expect publish to the CORRECT queue
+			publisher.On("PublishJSON", mock.Anything, tt.expected, mock.MatchedBy(func(t flow.TaskEnvelope) bool {
+				return t.TaskID == "123"
+			}), mock.Anything, mock.Anything).Return(&nats.PubAck{}, nil)
+
+			// Expect status/audit (we don't strictly care about arguments here for this test, but they are called)
+			publisher.On("PublishJSON", mock.Anything, bus.SubjectEventStatus, mock.Anything, mock.Anything, mock.Anything).Return(&nats.PubAck{}, nil)
+			publisher.On("PublishJSON", mock.Anything, bus.SubjectEventAudit, mock.Anything, mock.Anything, mock.Anything).Return(&nats.PubAck{}, nil)
+
+			err := svc.ProcessTask(context.Background(), msg)
+			require.NoError(t, err)
+
+			publisher.AssertExpectations(t)
+		})
+	}
+}
