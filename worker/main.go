@@ -3,12 +3,8 @@ package main
 import (
 	"context"
 	"log"
-	"math/rand"
-	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
