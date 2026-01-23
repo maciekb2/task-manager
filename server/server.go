@@ -10,7 +10,9 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -199,7 +201,9 @@ func (s *server) StreamTaskStatus(req *pb.StatusRequest, stream pb.TaskManager_S
 }
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
 		log.Fatalf("telemetry init failed: %v", err)
@@ -227,10 +231,17 @@ func main() {
 	grpcServer := grpc.NewServer(serverOpts()...)
 	pb.RegisterTaskManagerServer(grpcServer, newServer(rdb, busClient))
 
-	log.Println("Serwer gRPC działa na porcie :50051")
-	if err := grpcServer.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
-	}
+	go func() {
+		log.Println("Serwer gRPC działa na porcie :50051")
+		if err := grpcServer.Serve(lis); err != nil {
+			log.Fatalf("failed to serve: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Println("Shutting down gRPC server...")
+	grpcServer.GracefulStop()
+	log.Println("gRPC server stopped.")
 }
 
 func (s *server) enqueueStatus(ctx context.Context, update flow.StatusUpdate) error {

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -17,7 +19,9 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
 		log.Fatalf("telemetry init failed: %v", err)
@@ -70,7 +74,7 @@ func main() {
 		log.Printf("deadletter: %s %s", entry.Task.TaskID, entry.Reason)
 		ackMessage("deadletter", msg)
 		return nil
-	}); err != nil {
+	}); err != nil && err != context.Canceled {
 		log.Fatalf("deadletter consume failed: %v", err)
 	}
 }

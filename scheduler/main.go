@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/maciekb2/task-manager/pkg/bus"
@@ -11,7 +13,9 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
 		log.Fatalf("telemetry init failed: %v", err)
@@ -42,7 +46,7 @@ func main() {
 
 	if err := busClient.Consume(ctx, sub, bus.ConsumeOptions{Batch: 5, MaxWait: 5 * time.Second, DisableAutoAck: true}, func(msgCtx context.Context, msg *nats.Msg) error {
 		return svc.ProcessTask(msgCtx, &NatsMessage{Msg: msg})
-	}); err != nil {
+	}); err != nil && err != context.Canceled {
 		log.Fatalf("scheduler consume failed: %v", err)
 	}
 }
