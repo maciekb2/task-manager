@@ -12,7 +12,6 @@ import (
 	"github.com/maciekb2/task-manager/pkg/flow"
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -43,6 +42,7 @@ func main() {
 		log.Fatalf("nats subscribe failed: %v", err)
 	}
 	tracer := otel.Tracer("deadletter")
+	service := NewDeadLetterService(rdb, tracer)
 
 	if err := busClient.Consume(ctx, sub, bus.ConsumeOptions{Batch: 10, MaxWait: 5 * time.Second, DisableAutoAck: true}, func(msgCtx context.Context, msg *nats.Msg) error {
 		var entry flow.DeadLetter
@@ -60,32 +60,14 @@ func main() {
 		if !trace.SpanContextFromContext(parentCtx).IsValid() && entry.Task.TraceParent != "" {
 			parentCtx = contextFromTraceParent(entry.Task.TraceParent)
 		}
-		ctxSpan, span := tracer.Start(parentCtx, "deadletter.persist")
-		bus.AnnotateSpan(span, msg)
-		span.SetAttributes(
-			attribute.String("task.id", entry.Task.TaskID),
-			attribute.String("deadletter.reason", entry.Reason),
-			attribute.String("deadletter.source", entry.Source),
-			attribute.String("queue.name", bus.SubjectEventDeadLetter),
-		)
 
-		payload, err := json.Marshal(entry)
-		if err != nil {
-			log.Printf("deadletter: marshal failed: %v", err)
-			span.End()
-			return nil
-		}
-
-		if err := rdb.RPush(ctxSpan, "dead_letter", payload).Err(); err != nil {
-			log.Printf("deadletter: persist failed: %v", err)
-			span.RecordError(err)
-			span.End()
+		if err := service.Persist(parentCtx, entry, msg); err != nil {
+			log.Printf("deadletter: %v", err)
 			handleSinkFailure(msg, "deadletter")
 			return nil
 		}
 
 		log.Printf("deadletter: %s %s", entry.Task.TaskID, entry.Reason)
-		span.End()
 		ackMessage("deadletter", msg)
 		return nil
 	}); err != nil {

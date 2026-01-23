@@ -16,6 +16,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
+	"github.com/nats-io/nats.go"
 	pb "github.com/maciekb2/task-manager/proto"
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel"

@@ -55,6 +55,7 @@ func TestSubmitTask(t *testing.T) {
 		t.Fatalf("SubmitTask failed: %v", err)
 	}
 
+	// Verify response
 	if resp.TaskId == "" {
 		t.Error("expected TaskId, got empty string")
 	}

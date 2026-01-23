@@ -61,3 +61,6 @@ k8s-delete:
 	kubectl delete -k k8s
 
 all: build k8s-apply
+
+test:
+	cd deadletter && go test -v ./...
