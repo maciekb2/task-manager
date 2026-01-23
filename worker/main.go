@@ -163,6 +163,7 @@ func processLoop(ctx context.Context, busClient *bus.Client, jobs <-chan *nats.M
 			if !trace.SpanContextFromContext(parentCtx).IsValid() && task.TraceParent != "" {
 				parentCtx = contextFromTraceParent(task.TraceParent)
 			}
+			start := time.Now()
 			ctxTask, span := tracer.Start(parentCtx, "worker.process")
 			bus.AnnotateSpan(span, msg)
 			span.SetAttributes(
