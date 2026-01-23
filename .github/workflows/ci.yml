@@ -8,37 +8,17 @@ on:
 
 jobs:
   test:
-    name: Test
-  test-worker:
-    name: Test Worker
-  test:
-    name: Test Enricher
-    runs-on: ubuntu-latest
+    name: Run Tests
+    runs-on: self-hosted
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.23'
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: false
 
-    - name: Test Server
-      working-directory: ./server
-      run: |
-        go get github.com/alicebob/miniredis/v2
-        cache-dependency-path: worker/go.sum
-
-    - name: Test
-      working-directory: ./worker
-      run: go test -v ./...
-        go-version: '1.23.3'
-
-    - name: Test Notifier
-      working-directory: ./notifier
-      run: go test -v ./...
-        go-version: '1.23'
-
-    - name: Test Enricher
-      run: |
-        cd enricher
-        go test -v ./...
+      - name: Run Tests
+        run: make test-all
