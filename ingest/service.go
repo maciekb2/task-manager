@@ -36,6 +36,8 @@ func (s *IngestService) ProcessMessage(msgCtx context.Context, msg Message) erro
 		return nil
 	}
 
+	recordMetrics(task.Priority)
+
 	if task.TraceParent == "" {
 		task.TraceParent = traceparentFromContext(msgCtx)
 	}
