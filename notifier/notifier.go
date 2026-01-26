@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
+	"github.com/maciekb2/task-manager/pkg/logger"
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -57,7 +58,7 @@ func NewNotifier(rdb *redis.Client, bus BusPublisher, tracer trace.Tracer) *Noti
 func (n *Notifier) HandleMessage(msgCtx context.Context, msg Message) error {
 	var update flow.StatusUpdate
 	if err := json.Unmarshal(msg.Data(), &update); err != nil {
-		log.Printf("notifier: bad payload: %v", err)
+		slog.Error("notifier: bad payload", "error", err)
 		n.handleEventFailure(msgCtx, msg, flow.TaskEnvelope{}, "bad payload", false)
 		return nil
 	}
@@ -90,7 +91,7 @@ func (n *Notifier) HandleMessage(msgCtx context.Context, msg Message) error {
 		"updated_at": update.Timestamp,
 		"source":     update.Source,
 	}).Err(); err != nil {
-		log.Printf("notifier: status update failed: %v", err)
+		logger.WithContext(ctxSpan).Error("notifier: status update failed", "error", err)
 		span.RecordError(err)
 		span.End()
 		n.handleEventFailure(msgCtx, msg, flow.TaskEnvelope{TaskID: update.TaskID, TraceParent: update.TraceParent}, "status update failed", true)
@@ -98,7 +99,7 @@ func (n *Notifier) HandleMessage(msgCtx context.Context, msg Message) error {
 	}
 
 	if err := n.RDB.Publish(ctxSpan, statusKey, update.Status).Err(); err != nil {
-		log.Printf("notifier: publish failed: %v", err)
+		logger.WithContext(ctxSpan).Error("notifier: publish failed", "error", err)
 		span.RecordError(err)
 		span.End()
 		n.handleEventFailure(msgCtx, msg, flow.TaskEnvelope{TaskID: update.TaskID, TraceParent: update.TraceParent}, "publish status failed", true)
@@ -107,7 +108,7 @@ func (n *Notifier) HandleMessage(msgCtx context.Context, msg Message) error {
 	span.End()
 
 	if err := msg.Ack(); err != nil {
-		log.Printf("notifier: ack failed: %v", err)
+		logger.Error("notifier: ack failed", err)
 	}
 	return nil
 }
@@ -117,12 +118,12 @@ func (n *Notifier) handleEventFailure(ctx context.Context, msg Message, task flo
 	if !retry || attempts >= bus.MaxDeliver() {
 		n.enqueueDeadLetter(ctx, task, reason, attempts)
 		if err := msg.Ack(); err != nil {
-			log.Printf("notifier: ack failed: %v", err)
+			logger.Error("notifier: ack failed", err)
 		}
 		return
 	}
 	if err := msg.Nak(); err != nil {
-		log.Printf("notifier: nak failed: %v", err)
+		logger.Error("notifier: nak failed", err)
 	}
 }
 
@@ -138,7 +139,7 @@ func (n *Notifier) enqueueDeadLetter(ctx context.Context, task flow.TaskEnvelope
 		Timestamp: flow.Now(),
 	}
 	if _, err := n.Bus.PublishJSON(ctx, bus.SubjectEventDeadLetter, entry, nil); err != nil {
-		log.Printf("notifier: deadletter publish failed: %v", err)
+		logger.WithContext(ctx).Error("notifier: deadletter publish failed", "error", err)
 	}
 }
 

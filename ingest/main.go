@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/maciekb2/task-manager/pkg/bus"
+	"github.com/maciekb2/task-manager/pkg/logger"
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
@@ -17,33 +17,35 @@ import (
 var httpClient = &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 
 func main() {
+	logger.Setup("ingest")
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
-		log.Fatalf("telemetry init failed: %v", err)
+		logger.Fatal("telemetry init failed", err)
 	}
 	defer shutdown(ctx)
 
 	busClient, err := bus.Connect(bus.Config{URL: natsURL(), Name: "ingest"})
 	if err != nil {
-		log.Fatalf("nats connect failed: %v", err)
+		logger.Fatal("nats connect failed", err)
 	}
 	defer busClient.Close()
 	if _, err := busClient.EnsureStream(bus.TasksStreamConfig()); err != nil {
-		log.Fatalf("nats stream setup failed: %v", err)
+		logger.Fatal("nats stream setup failed", err)
 	}
 	if _, err := busClient.EnsureStream(bus.EventsStreamConfig()); err != nil {
-		log.Fatalf("nats stream setup failed: %v", err)
+		logger.Fatal("nats stream setup failed", err)
 	}
 	consumerCfg := bus.DefaultConsumerConfig(bus.DurableName(bus.StreamTasks, "ingest"), bus.SubjectTaskIngest)
 	if _, err := busClient.EnsureConsumer(bus.StreamTasks, consumerCfg); err != nil {
-		log.Fatalf("nats consumer setup failed: %v", err)
+		logger.Fatal("nats consumer setup failed", err)
 	}
 	sub, err := busClient.PullSubscribe(bus.SubjectTaskIngest, consumerCfg.Durable)
 	if err != nil {
-		log.Fatalf("nats subscribe failed: %v", err)
+		logger.Fatal("nats subscribe failed", err)
 	}
 
 	enricher := NewHttpEnricher(httpClient, enricherURL())
@@ -52,7 +54,7 @@ func main() {
 	if err := busClient.Consume(ctx, sub, bus.ConsumeOptions{Batch: 5, MaxWait: 5 * time.Second, DisableAutoAck: true}, func(msgCtx context.Context, msg *nats.Msg) error {
 		return svc.ProcessMessage(msgCtx, NewNatsMessageAdapter(msg))
 	}); err != nil && err != context.Canceled {
-		log.Fatalf("ingest consume failed: %v", err)
+		logger.Fatal("ingest consume failed", err)
 	}
 }
 

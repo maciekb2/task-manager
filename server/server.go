@@ -6,7 +6,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"math/rand"
 	"net"
 	"os"
@@ -18,6 +18,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
+	"github.com/maciekb2/task-manager/pkg/logger"
 	"github.com/nats-io/nats.go"
 	pb "github.com/maciekb2/task-manager/proto"
 	"go.opentelemetry.io/otel"
@@ -139,7 +140,7 @@ func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskR
 		Timestamp:   flow.Now(),
 		Source:      "gateway",
 	}); err != nil {
-		log.Printf("Could not enqueue status: %v", err)
+		logger.Error("Could not enqueue status", err)
 	}
 
 	if err := s.enqueueAudit(ctx, flow.AuditEvent{
@@ -150,7 +151,7 @@ func (s *server) SubmitTask(ctx context.Context, req *pb.TaskRequest) (*pb.TaskR
 		Source:      "gateway",
 		Timestamp:   flow.Now(),
 	}); err != nil {
-		log.Printf("Could not enqueue audit event: %v", err)
+		logger.Error("Could not enqueue audit event", err)
 	}
 
 	tasksReceived.WithLabelValues(fmt.Sprintf("%d", req.Priority)).Inc()
@@ -201,47 +202,49 @@ func (s *server) StreamTaskStatus(req *pb.StatusRequest, stream pb.TaskManager_S
 }
 
 func main() {
+	logger.Setup("gateway")
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
-		log.Fatalf("telemetry init failed: %v", err)
+		logger.Fatal("telemetry init failed", err)
 	}
 	defer shutdown(ctx)
 
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr()})
 	busClient, err := bus.Connect(bus.Config{URL: natsURL(), Name: "gateway"})
 	if err != nil {
-		log.Fatalf("nats connect failed: %v", err)
+		logger.Fatal("nats connect failed", err)
 	}
 	defer busClient.Close()
 	if _, err := busClient.EnsureStream(bus.TasksStreamConfig()); err != nil {
-		log.Fatalf("nats stream setup failed: %v", err)
+		logger.Fatal("nats stream setup failed", err)
 	}
 	if _, err := busClient.EnsureStream(bus.EventsStreamConfig()); err != nil {
-		log.Fatalf("nats stream setup failed: %v", err)
+		logger.Fatal("nats stream setup failed", err)
 	}
 
 	lis, err := net.Listen("tcp", ":50051")
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		logger.Fatal("failed to listen", err)
 	}
 
 	grpcServer := grpc.NewServer(serverOpts()...)
 	pb.RegisterTaskManagerServer(grpcServer, newServer(rdb, busClient))
 
 	go func() {
-		log.Println("Serwer gRPC działa na porcie :50051")
+		slog.Info("Serwer gRPC działa na porcie :50051")
 		if err := grpcServer.Serve(lis); err != nil {
-			log.Fatalf("failed to serve: %v", err)
+			logger.Fatal("failed to serve", err)
 		}
 	}()
 
 	<-ctx.Done()
-	log.Println("Shutting down gRPC server...")
+	slog.Info("Shutting down gRPC server...")
 	grpcServer.GracefulStop()
-	log.Println("gRPC server stopped.")
+	slog.Info("gRPC server stopped.")
 }
 
 func (s *server) enqueueStatus(ctx context.Context, update flow.StatusUpdate) error {
