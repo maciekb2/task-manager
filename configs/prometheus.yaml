@@ -16,6 +16,10 @@ scrape_configs:
     static_configs:
       - targets:
           - nats-exporter:7777
+  - job_name: redis
+    static_configs:
+      - targets:
+          - redis-exporter:9121
   - job_name: envoy
     metrics_path: /stats/prometheus
     static_configs:
@@ -29,6 +33,10 @@ scrape_configs:
     static_configs:
       - targets:
           - taskmanager-service:2222
+  - job_name: worker
+    static_configs:
+      - targets:
+          - worker:2222
   - job_name: ingest
     static_configs:
       - targets:
@@ -45,6 +53,10 @@ scrape_configs:
     static_configs:
       - targets:
           - enricher:2222
+  - job_name: scheduler
+    static_configs:
+      - targets:
+          - scheduler:2222
   - job_name: audit
     static_configs:
       - targets:
