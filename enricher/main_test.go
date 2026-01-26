@@ -62,6 +62,17 @@ func TestHandleEnrich(t *testing.T) {
 			body:           "invalid-json",
 			expectedStatus: http.StatusBadRequest,
 		},
+		{
+			name:   "Negative Priority",
+			method: http.MethodPost,
+			body: enrichRequest{
+				Priority: -1,
+				URL:      "http://c.com", // len 12
+			},
+			expectedStatus: http.StatusOK,
+			expectedCat:    "low",
+			expectedScore:  12 - 100, // -88
+		},
 	}
 
 	for _, tc := range tests {
