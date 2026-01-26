@@ -95,6 +95,17 @@ services:
     networks:
       - taskmanager-net
 
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    command: ["--redis.addr=redis-service:6379"]
+    restart: unless-stopped
+    ports:
+      - "9121:9121"
+    depends_on:
+      - redis-service
+    networks:
+      - taskmanager-net
+
   nats:
     image: public.ecr.aws/docker/library/nats:2.10.10
     command: ["-c", "/etc/nats/nats.conf"]
