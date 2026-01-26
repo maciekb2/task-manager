@@ -29,6 +29,10 @@ scrape_configs:
     static_configs:
       - targets:
           - result-store:2222
+  - job_name: taskmanager-service
+    static_configs:
+      - targets:
+          - taskmanager-service:2222
   - job_name: worker
     static_configs:
       - targets:
@@ -37,6 +41,14 @@ scrape_configs:
     static_configs:
       - targets:
           - ingest:2222
+  - job_name: scheduler
+    static_configs:
+      - targets:
+          - scheduler:2222
+  - job_name: worker
+    static_configs:
+      - targets:
+          - worker:2222
   - job_name: enricher
     static_configs:
       - targets:

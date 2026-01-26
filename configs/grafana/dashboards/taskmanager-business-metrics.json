@@ -36,6 +36,15 @@
       "pluginVersion": "10.4.2",
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(tasks_received_total)",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Ingested",
           "expr": "sum(rate(tasks_processed_total{status=\"COMPLETED\"}[5m])) / sum(rate(tasks_processed_total[5m]))",
           "legendFormat": "Success Rate",
           "refId": "A"
@@ -70,6 +79,39 @@
         "uid": "prometheus"
       },
       "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(tasks_processed_total)",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Processed",
         "h": 8,
         "w": 8,
         "x": 8,
@@ -92,6 +134,39 @@
         "uid": "prometheus"
       },
       "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(tasks_processed_total{status=\"failed\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "Failed Tasks",
         "h": 8,
         "w": 8,
         "x": 16,
@@ -118,6 +193,13 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "id": 7,
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -350,11 +432,20 @@
             "uid": "prometheus"
           },
           "expr": "sum by (priority) (rate(tasks_received_total[1m]))",
-          "legendFormat": "Priority {{priority}}",
+          "legendFormat": "Ingest Priority {{priority}}",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (priority) (rate(tasks_processed_total[1m]))",
+          "legendFormat": "Process Priority {{priority}}",
+          "refId": "B"
         }
       ],
-      "title": "Task Ingestion Rate",
+      "title": "Ingest vs Processing Rate",
       "type": "timeseries"
     },
     {
@@ -416,7 +507,7 @@
         "x": 12,
         "y": 6
       },
-      "id": 2,
+      "id": 3,
       "options": {
         "legend": {
           "calcs": [],
@@ -435,12 +526,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (status, priority) (rate(tasks_processed_total[1m]))",
-          "legendFormat": "{{status}} (Priority {{priority}})",
+          "expr": "histogram_quantile(0.95, sum(rate(task_processing_duration_seconds_bucket[1m])) by (le, priority))",
+          "legendFormat": "P95 Priority {{priority}}",
           "refId": "A"
         }
       ],
-      "title": "Task Processing Rate",
+      "title": "Task Processing Duration (P95)",
       "type": "timeseries"
     },
     {
@@ -591,26 +682,26 @@
               "mode": "off"
             }
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
+          "expr": "sum by (job) (go_memstats_alloc_bytes)",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Memory Usage by Service",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 14
+        "y": 12
       },
-      "id": 3,
+      "id": 9,
       "options": {
         "legend": {
           "calcs": [],
@@ -629,9 +720,56 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum(rate(task_processing_duration_seconds_bucket[1m])) by (le, priority))",
-          "legendFormat": "P95 Priority {{priority}}",
+          "expr": "sum by (job) (go_goroutines)",
+          "legendFormat": "{{job}}",
           "refId": "A"
+        }
+      ],
+      "title": "Goroutines by Service",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "rate(gnatsd_varz_in_msgs[1m])",
+          "legendFormat": "In Msgs/sec",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "rate(gnatsd_varz_out_msgs[1m])",
+          "legendFormat": "Out Msgs/sec",
+          "refId": "B"
         }
       ],
       "title": "Internal Processing Duration (P95)",
