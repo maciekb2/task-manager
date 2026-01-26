@@ -71,6 +71,6 @@ unit-tests:
 	done
 
 e2e-tests:
-	docker compose -f docker-compose.yml -f tests/e2e/docker-compose.test.yml up --build --exit-code-from e2e-tests
+	docker compose -f tests/e2e/docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from e2e-tests
 
 test-all: unit-tests e2e-tests
