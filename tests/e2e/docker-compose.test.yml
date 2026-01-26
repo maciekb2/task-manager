@@ -1,0 +1,3 @@
+services:
+  producer:
+    entrypoint: ["/bin/sh", "-c", "exit 0"]
