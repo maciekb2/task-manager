@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -247,17 +248,27 @@ func (c *Client) Consume(ctx context.Context, sub *nats.Subscription, opts Consu
 			return err
 		}
 
-		for _, msg := range msgs {
+		c.processBatch(ctx, msgs, opts, retry, handler)
+	}
+}
+
+func (c *Client) processBatch(ctx context.Context, msgs []*nats.Msg, opts ConsumeOptions, retry RetryPolicy, handler Handler) {
+	var wg sync.WaitGroup
+	for _, msg := range msgs {
+		wg.Add(1)
+		go func(msg *nats.Msg) {
+			defer wg.Done()
 			msgCtx := ContextFromHeaders(ctx, msg.Header)
 			if err := handler(msgCtx, msg); err != nil {
 				handleFailure(c, msg, opts.DLQSubject, retry, err)
-				continue
+				return
 			}
 			if !opts.DisableAutoAck {
 				_ = msg.Ack()
 			}
-		}
+		}(msg)
 	}
+	wg.Wait()
 }
 
 func (c *Client) PublishDLQ(ctx context.Context, subject string, msg *nats.Msg, reason string) error {
