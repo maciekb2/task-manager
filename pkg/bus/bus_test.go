@@ -2,8 +2,6 @@ package bus
 
 import (
 	"context"
-	"testing"
-	"time"
 	"encoding/base64"
 	"testing"
 	"time"
@@ -14,8 +12,6 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
-
-
 
 func TestDurableName(t *testing.T) {
 	tests := []struct {
@@ -100,6 +96,8 @@ func TestWorkerSubjectForPriority(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("WorkerSubjectForPriority(%d) = %q; want %q", tt.priority, got, tt.want)
 		}
+	}
+}
 
 func TestBackoffFor(t *testing.T) {
 	policy := RetryPolicy{
@@ -122,7 +120,7 @@ func TestBackoffFor(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		got := backoffFor(policy, tt.attempt)
+		got := backoffFor(policy, tc.attempt)
 		if got != tc.expected {
 			t.Errorf("attempt %d: expected %v, got %v", tc.attempt, tc.expected, got)
 		}
@@ -155,7 +153,7 @@ func TestBuildDLQMessage(t *testing.T) {
 	assert.Equal(t, "test.subject", dlq.Subject)
 	assert.Equal(t, reason, dlq.Reason)
 	assert.Equal(t, base64.StdEncoding.EncodeToString(data), dlq.Payload)
-	assert.Equal(t, []string{"value"}, dlq.Headers["X-Test"])
+	assert.Equal(t, []string{"true"}, dlq.Headers["X-Test"])
 	assert.NotEmpty(t, dlq.ReceivedAt)
 }
 
@@ -196,24 +194,6 @@ func TestHandleFailure_MaxRetries(t *testing.T) {
 	// But Client struct has private fields.
 	// However, we can test that logic generally if we could mock.
 	// For now, let's stick to the pure logic functions we already tested.
-}
-
-func TestNakWithDelay(t *testing.T) {
-	// This function checks for an interface or calls Nak().
-	// Can't easily test without a mocked Msg that implements the interface.
-	if dlq.Subject != "test.subject" {
-		t.Errorf("expected subject test.subject, got %s", dlq.Subject)
-	}
-	if dlq.Reason != reason {
-		t.Errorf("expected reason %s, got %s", reason, dlq.Reason)
-	}
-	encoded := base64.StdEncoding.EncodeToString(data)
-	if dlq.Payload != encoded {
-		t.Errorf("expected payload %s, got %s", encoded, dlq.Payload)
-	}
-	if val := dlq.Headers["X-Test"]; len(val) != 1 || val[0] != "true" {
-		t.Errorf("header mismatch")
-	}
 }
 
 func TestCloneHeaders(t *testing.T) {
