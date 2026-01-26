@@ -23,7 +23,7 @@ jobs:
       - name: Run Unit Tests
         run: |
           set -e
-          modules="enricher client worker server result-store deadletter scheduler notifier audit ingest"
+          modules="enricher client worker server result-store deadletter scheduler notifier audit ingest pkg"
           for dir in $modules; do
             echo "Testing $dir..."
             (cd "$dir" && go mod tidy && go test -v ./...)

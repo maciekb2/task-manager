@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -160,5 +162,61 @@ func TestProcessMessage_RedisError(t *testing.T) {
 	}
 	if !foundDLQ {
 		t.Error("Deadletter not published for Redis error")
+	}
+}
+
+func TestHTTP_GetResults(t *testing.T) {
+	s := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+
+	// Seed data
+	taskID := "task-http"
+	key := "task_result:" + taskID
+	s.HSet(key, "result", "100")
+	s.HSet(key, "worker_id", "1")
+
+	mux := newServerMux(rdb)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	// Case 1: Found
+	resp, err := http.Get(ts.URL + "/results/" + taskID)
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	}
+
+	var data map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+	if data["result"] != "100" {
+		t.Errorf("Expected result 100, got %s", data["result"])
+	}
+
+	// Case 2: Not Found
+	resp404, err := http.Get(ts.URL + "/results/unknown")
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	defer resp404.Body.Close()
+
+	if resp404.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected status 404, got %d", resp404.StatusCode)
+	}
+
+	// Case 3: Bad Request (empty ID)
+	resp400, err := http.Get(ts.URL + "/results/")
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	defer resp400.Body.Close()
+
+	if resp400.StatusCode != http.StatusBadRequest {
+		t.Errorf("Expected status 400 for empty ID, got %d", resp400.StatusCode)
 	}
 }

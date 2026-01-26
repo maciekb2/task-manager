@@ -181,7 +181,7 @@ func recordE2ELatency(ctx context.Context, metrics resultStoreMetrics, result fl
 	}
 }
 
-func startHTTPServer(rdb *redis.Client) *http.Server {
+func newServerMux(rdb *redis.Client) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/results/", func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(r.URL.Path, "/results/")
@@ -203,6 +203,11 @@ func startHTTPServer(rdb *redis.Client) *http.Server {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(data)
 	})
+	return mux
+}
+
+func startHTTPServer(rdb *redis.Client) *http.Server {
+	mux := newServerMux(rdb)
 
 	addr := ":" + resultPort()
 	srv := &http.Server{Addr: addr, Handler: mux}
