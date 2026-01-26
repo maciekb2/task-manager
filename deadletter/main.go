@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,6 +12,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
+	"github.com/maciekb2/task-manager/pkg/logger"
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
@@ -19,31 +20,33 @@ import (
 )
 
 func main() {
+	logger.Setup("deadletter")
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
-		log.Fatalf("telemetry init failed: %v", err)
+		logger.Fatal("telemetry init failed", err)
 	}
 	defer shutdown(ctx)
 
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr()})
 	busClient, err := bus.Connect(bus.Config{URL: natsURL(), Name: "deadletter"})
 	if err != nil {
-		log.Fatalf("nats connect failed: %v", err)
+		logger.Fatal("nats connect failed", err)
 	}
 	defer busClient.Close()
 	if _, err := busClient.EnsureStream(bus.EventsStreamConfig()); err != nil {
-		log.Fatalf("nats stream setup failed: %v", err)
+		logger.Fatal("nats stream setup failed", err)
 	}
 	consumerCfg := bus.DefaultConsumerConfig(bus.DurableName(bus.StreamEvents, "deadletter"), bus.SubjectEventDeadLetter)
 	if _, err := busClient.EnsureConsumer(bus.StreamEvents, consumerCfg); err != nil {
-		log.Fatalf("nats consumer setup failed: %v", err)
+		logger.Fatal("nats consumer setup failed", err)
 	}
 	sub, err := busClient.PullSubscribe(bus.SubjectEventDeadLetter, consumerCfg.Durable)
 	if err != nil {
-		log.Fatalf("nats subscribe failed: %v", err)
+		logger.Fatal("nats subscribe failed", err)
 	}
 	tracer := otel.Tracer("deadletter")
 	service := NewDeadLetterService(rdb, tracer)
@@ -51,7 +54,7 @@ func main() {
 	if err := busClient.Consume(ctx, sub, bus.ConsumeOptions{Batch: 10, MaxWait: 5 * time.Second, DisableAutoAck: true}, func(msgCtx context.Context, msg *nats.Msg) error {
 		var entry flow.DeadLetter
 		if err := json.Unmarshal(msg.Data, &entry); err != nil {
-			log.Printf("deadletter: bad payload: %v", err)
+			slog.Error("deadletter: bad payload", "error", err)
 			ackMessage("deadletter", msg)
 			return nil
 		}
@@ -66,16 +69,16 @@ func main() {
 		}
 
 		if err := service.Persist(parentCtx, entry, msg); err != nil {
-			log.Printf("deadletter: %v", err)
+			logger.WithContext(parentCtx).Error("deadletter: persist failed", "error", err)
 			handleSinkFailure(msg, "deadletter")
 			return nil
 		}
 
-		log.Printf("deadletter: %s %s", entry.Task.TaskID, entry.Reason)
+		logger.WithContext(parentCtx).Info("deadletter: processed", "task_id", entry.Task.TaskID, "reason", entry.Reason)
 		ackMessage("deadletter", msg)
 		return nil
 	}); err != nil && err != context.Canceled {
-		log.Fatalf("deadletter consume failed: %v", err)
+		logger.Fatal("deadletter consume failed", err)
 	}
 }
 
@@ -118,7 +121,7 @@ func ackMessage(service string, msg *nats.Msg) {
 		return
 	}
 	if err := msg.Ack(); err != nil {
-		log.Printf("%s: ack failed: %v", service, err)
+		logger.Error("ack failed", err, "service", service)
 	}
 }
 
@@ -127,6 +130,6 @@ func nakMessage(service string, msg *nats.Msg) {
 		return
 	}
 	if err := msg.Nak(); err != nil {
-		log.Printf("%s: nak failed: %v", service, err)
+		logger.Error("nak failed", err, "service", service)
 	}
 }

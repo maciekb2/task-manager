@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"math/rand"
 	"net/http"
 	"os"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
+	"github.com/maciekb2/task-manager/pkg/logger"
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
@@ -47,7 +48,7 @@ func dispatchLoop(ctx context.Context, subs []prioritySub, out chan<- *nats.Msg)
 		for _, entry := range subs {
 			msg, err := fetchOne(entry.sub, 300*time.Millisecond)
 			if err != nil {
-				log.Printf("worker: fetch from %s failed: %v", entry.subject, err)
+				logger.Error("worker: fetch failed", err, "subject", entry.subject)
 				time.Sleep(500 * time.Millisecond)
 				dispatched = true
 				break
@@ -102,7 +103,7 @@ func processLoop(ctx context.Context, publisher Publisher, jobs <-chan *nats.Msg
 			msgCtx := bus.ContextFromHeaders(ctx, msg.Header)
 			var task flow.TaskEnvelope
 			if err := json.Unmarshal(msg.Data, &task); err != nil {
-				log.Printf("worker %d: bad payload: %v", workerID, err)
+				slog.Error("worker: bad payload", "worker_id", workerID, "error", err)
 				handleProcessingFailure(msgCtx, publisher, msg, flow.TaskEnvelope{}, "bad payload", false)
 				continue
 			}
@@ -145,7 +146,7 @@ func processLoop(ctx context.Context, publisher Publisher, jobs <-chan *nats.Msg
 			)
 
 			if checkErr != nil {
-				log.Printf("worker %d: task %s http check failed: %v", workerID, task.TaskID, checkErr)
+				logger.WithContext(ctxTask).Error("worker: http check failed", "error", checkErr, "worker_id", workerID, "task_id", task.TaskID)
 				span.RecordError(checkErr)
 				// We don't necessarily fail the task processing in terms of NATS if the HTTP check fails (e.g. 404 or DNS error),
 				// but we might want to mark the outcome as such.
@@ -153,7 +154,7 @@ func processLoop(ctx context.Context, publisher Publisher, jobs <-chan *nats.Msg
 			}
 
 			if rand.Float64() < failRate {
-				log.Printf("worker %d: task %s failed (simulated)", workerID, task.TaskID)
+				logger.WithContext(ctxTask).Info("worker: task failed (simulated)", "worker_id", workerID, "task_id", task.TaskID)
 				span.SetAttributes(attribute.String("task.outcome", "failed"))
 				enqueueStatus(ctxTask, publisher, task, "FAILED", "worker")
 				enqueueDeadLetter(ctxTask, publisher, task, "processing failed", bus.DeliveryAttempt(msg))
@@ -171,7 +172,7 @@ func processLoop(ctx context.Context, publisher Publisher, jobs <-chan *nats.Msg
 				WorkerID:    workerID,
 			}
 			if _, err := publisher.PublishJSON(ctxTask, bus.SubjectTaskResults, resultPayload, nil); err != nil {
-				log.Printf("worker %d: publish results failed: %v", workerID, err)
+				logger.WithContext(ctxTask).Error("worker: publish results failed", "error", err, "worker_id", workerID)
 				span.RecordError(err)
 				handleProcessingFailure(ctxTask, publisher, msg, task, "publish results failed", true)
 				recordMetrics(task.Priority, "failed", workerID, time.Since(start).Seconds())
@@ -234,13 +235,13 @@ func enqueueStatus(ctx context.Context, publisher Publisher, task flow.TaskEnvel
 		Source:      source,
 	}
 	if _, err := publisher.PublishJSON(ctx, bus.SubjectEventStatus, update, nil); err != nil {
-		log.Printf("worker: status publish failed: %v", err)
+		logger.WithContext(ctx).Error("worker: status publish failed", "error", err)
 	}
 }
 
 func enqueueAudit(ctx context.Context, publisher Publisher, event flow.AuditEvent) {
 	if _, err := publisher.PublishJSON(ctx, bus.SubjectEventAudit, event, nil); err != nil {
-		log.Printf("worker: audit publish failed: %v", err)
+		logger.WithContext(ctx).Error("worker: audit publish failed", "error", err)
 	}
 }
 
@@ -256,7 +257,7 @@ func enqueueDeadLetter(ctx context.Context, publisher Publisher, task flow.TaskE
 		Timestamp: flow.Now(),
 	}
 	if _, err := publisher.PublishJSON(ctx, bus.SubjectEventDeadLetter, entry, nil); err != nil {
-		log.Printf("worker: deadletter publish failed: %v", err)
+		logger.WithContext(ctx).Error("worker: deadletter publish failed", "error", err)
 	}
 }
 
@@ -286,7 +287,7 @@ func ackMessage(service string, msg *nats.Msg) {
 		return
 	}
 	if err := msg.Ack(); err != nil {
-		log.Printf("%s: ack failed: %v", service, err)
+		logger.Error("ack failed", err, "service", service)
 	}
 }
 
@@ -295,7 +296,7 @@ func nakMessage(service string, msg *nats.Msg) {
 		return
 	}
 	if err := msg.Nak(); err != nil {
-		log.Printf("%s: nak failed: %v", service, err)
+		logger.Error("nak failed", err, "service", service)
 	}
 }
 
@@ -307,7 +308,7 @@ func workerCount() int {
 	}
 	count, err := strconv.Atoi(value)
 	if err != nil || count < 1 {
-		log.Printf("worker: invalid WORKER_COUNT=%q, using %d", value, defaultWorkers)
+		slog.Warn("worker: invalid WORKER_COUNT, using default", "value", value, "default", defaultWorkers)
 		return defaultWorkers
 	}
 	return count
@@ -321,7 +322,7 @@ func workerFailRate() float64 {
 	}
 	rate, err := strconv.ParseFloat(value, 64)
 	if err != nil || rate < 0 || rate > 1 {
-		log.Printf("worker: invalid WORKER_FAIL_RATE=%q, using %.2f", value, defaultRate)
+		slog.Warn("worker: invalid WORKER_FAIL_RATE, using default", "value", value, "default", defaultRate)
 		return defaultRate
 	}
 	return rate

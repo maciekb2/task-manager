@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
+	"github.com/maciekb2/task-manager/pkg/logger"
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -68,7 +69,7 @@ func NewService(publisher BusPublisher) *Service {
 func (s *Service) ProcessTask(msgCtx context.Context, msg Message) error {
 	var task flow.TaskEnvelope
 	if err := json.Unmarshal(msg.GetData(), &task); err != nil {
-		log.Printf("scheduler: bad payload: %v", err)
+		slog.Error("scheduler: bad payload", "error", err)
 		s.handleProcessingFailure(msgCtx, msg, flow.TaskEnvelope{}, "bad payload", false)
 		return nil
 	}
@@ -99,7 +100,7 @@ func (s *Service) ProcessTask(msgCtx context.Context, msg Message) error {
 	)
 
 	if _, err := s.publisher.PublishJSON(ctxTask, queueName, task, nil); err != nil {
-		log.Printf("scheduler: publish worker failed: %v", err)
+		logger.WithContext(ctxTask).Error("scheduler: publish worker failed", "error", err)
 		span.RecordError(err)
 		span.End()
 		s.handleProcessingFailure(msgCtx, msg, task, "publish worker failed", true)
@@ -130,13 +131,13 @@ func (s *Service) enqueueStatus(ctx context.Context, task flow.TaskEnvelope, sta
 		Source:      source,
 	}
 	if _, err := s.publisher.PublishJSON(ctx, bus.SubjectEventStatus, update, nil); err != nil {
-		log.Printf("scheduler: status publish failed: %v", err)
+		logger.WithContext(ctx).Error("scheduler: status publish failed", "error", err)
 	}
 }
 
 func (s *Service) enqueueAudit(ctx context.Context, event flow.AuditEvent) {
 	if _, err := s.publisher.PublishJSON(ctx, bus.SubjectEventAudit, event, nil); err != nil {
-		log.Printf("scheduler: audit publish failed: %v", err)
+		logger.WithContext(ctx).Error("scheduler: audit publish failed", "error", err)
 	}
 }
 
@@ -152,7 +153,7 @@ func (s *Service) enqueueDeadLetter(ctx context.Context, task flow.TaskEnvelope,
 		Timestamp: flow.Now(),
 	}
 	if _, err := s.publisher.PublishJSON(ctx, bus.SubjectEventDeadLetter, entry, nil); err != nil {
-		log.Printf("scheduler: deadletter publish failed: %v", err)
+		logger.WithContext(ctx).Error("scheduler: deadletter publish failed", "error", err)
 	}
 }
 
@@ -171,7 +172,7 @@ func (s *Service) ackMessage(service string, msg Message) {
 		return
 	}
 	if err := msg.Ack(); err != nil {
-		log.Printf("%s: ack failed: %v", service, err)
+		logger.Error("ack failed", err, "service", service)
 	}
 }
 
@@ -180,7 +181,7 @@ func (s *Service) nakMessage(service string, msg Message) {
 		return
 	}
 	if err := msg.Nak(); err != nil {
-		log.Printf("%s: nak failed: %v", service, err)
+		logger.Error("nak failed", err, "service", service)
 	}
 }
 

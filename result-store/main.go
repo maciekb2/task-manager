@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,6 +14,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
+	"github.com/maciekb2/task-manager/pkg/logger"
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -37,61 +38,63 @@ type BusClient interface {
 }
 
 func main() {
+	logger.Setup("result-store")
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	shutdown, err := initTelemetry(ctx)
 	if err != nil {
-		log.Fatalf("telemetry init failed: %v", err)
+		logger.Fatal("telemetry init failed", err)
 	}
 	defer shutdown(ctx)
 	metrics, err := initMetrics()
 	if err != nil {
-		log.Fatalf("metrics init failed: %v", err)
+		logger.Fatal("metrics init failed", err)
 	}
 
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr()})
 	srv := startHTTPServer(rdb)
 	busClient, err := bus.Connect(bus.Config{URL: natsURL(), Name: "result-store"})
 	if err != nil {
-		log.Fatalf("nats connect failed: %v", err)
+		logger.Fatal("nats connect failed", err)
 	}
 	defer busClient.Close()
 	if _, err := busClient.EnsureStream(bus.TasksStreamConfig()); err != nil {
-		log.Fatalf("nats stream setup failed: %v", err)
+		logger.Fatal("nats stream setup failed", err)
 	}
 	if _, err := busClient.EnsureStream(bus.EventsStreamConfig()); err != nil {
-		log.Fatalf("nats stream setup failed: %v", err)
+		logger.Fatal("nats stream setup failed", err)
 	}
 	consumerCfg := bus.DefaultConsumerConfig(bus.DurableName(bus.StreamTasks, "result-store"), bus.SubjectTaskResults)
 	if _, err := busClient.EnsureConsumer(bus.StreamTasks, consumerCfg); err != nil {
-		log.Fatalf("nats consumer setup failed: %v", err)
+		logger.Fatal("nats consumer setup failed", err)
 	}
 	sub, err := busClient.PullSubscribe(bus.SubjectTaskResults, consumerCfg.Durable)
 	if err != nil {
-		log.Fatalf("nats subscribe failed: %v", err)
+		logger.Fatal("nats subscribe failed", err)
 	}
 
 	tracer := otel.Tracer("result-store")
 	if err := busClient.Consume(ctx, sub, bus.ConsumeOptions{Batch: 5, MaxWait: 5 * time.Second, DisableAutoAck: true}, func(msgCtx context.Context, msg *nats.Msg) error {
 		return ProcessMessage(msgCtx, msg, rdb, busClient, tracer, metrics)
 	}); err != nil && err != context.Canceled {
-		log.Fatalf("result-store consume failed: %v", err)
+		logger.Fatal("result-store consume failed", err)
 	}
 
-	log.Println("Shutting down result-store http...")
+	slog.Info("Shutting down result-store http...")
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("result-store http shutdown error: %v", err)
+		logger.Error("result-store http shutdown error", err)
 	}
-	log.Println("Result-store stopped.")
+	slog.Info("Result-store stopped.")
 }
 
 func ProcessMessage(msgCtx context.Context, msg *nats.Msg, rdb *redis.Client, busClient BusClient, tracer trace.Tracer, metrics resultStoreMetrics) error {
 	var result flow.ResultEnvelope
 	if err := json.Unmarshal(msg.Data, &result); err != nil {
-		log.Printf("result-store: bad payload: %v", err)
+		slog.Error("result-store: bad payload", "error", err)
 		handleProcessingFailure(msgCtx, busClient, msg, flow.TaskEnvelope{}, "bad payload", false)
 		return nil
 	}
@@ -118,7 +121,7 @@ func ProcessMessage(msgCtx context.Context, msg *nats.Msg, rdb *redis.Client, bu
 	span.SetAttributes(attribute.String("redis.key", key))
 	stored, err := storeResultOnce(ctxTask, rdb, key, result)
 	if err != nil {
-		log.Printf("result-store: persist failed: %v", err)
+		logger.WithContext(ctxTask).Error("result-store: persist failed", "error", err)
 		span.RecordError(err)
 		span.End()
 		handleProcessingFailure(msgCtx, busClient, msg, result.Task, "persist failed", true)
@@ -138,7 +141,7 @@ func ProcessMessage(msgCtx context.Context, msg *nats.Msg, rdb *redis.Client, bu
 		Source:      "result-store",
 		Timestamp:   flow.Now(),
 	}); err != nil {
-		log.Printf("result-store: audit publish failed: %v", err)
+		logger.WithContext(ctxTask).Error("result-store: audit publish failed", "error", err)
 		span.RecordError(err)
 		span.End()
 		handleProcessingFailure(msgCtx, busClient, msg, result.Task, "audit publish failed", true)
@@ -212,9 +215,9 @@ func startHTTPServer(rdb *redis.Client) *http.Server {
 	addr := ":" + resultPort()
 	srv := &http.Server{Addr: addr, Handler: mux}
 	go func() {
-		log.Printf("result-store http listening on %s", addr)
+		slog.Info("result-store http listening", "addr", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("result-store http failed: %v", err)
+			logger.Error("result-store http failed", err)
 		}
 	}()
 	return srv
@@ -301,7 +304,7 @@ func enqueueDeadLetter(ctx context.Context, busClient BusClient, task flow.TaskE
 		Timestamp: flow.Now(),
 	}
 	if _, err := busClient.PublishJSON(ctx, bus.SubjectEventDeadLetter, entry, nil); err != nil {
-		log.Printf("result-store: deadletter publish failed: %v", err)
+		logger.WithContext(ctx).Error("result-store: deadletter publish failed", "error", err)
 	}
 }
 
@@ -310,7 +313,7 @@ func ackMessage(service string, msg *nats.Msg) {
 		return
 	}
 	if err := msg.Ack(); err != nil {
-		log.Printf("%s: ack failed: %v", service, err)
+		logger.Error("ack failed", err, "service", service)
 	}
 }
 
@@ -319,6 +322,6 @@ func nakMessage(service string, msg *nats.Msg) {
 		return
 	}
 	if err := msg.Nak(); err != nil {
-		log.Printf("%s: nak failed: %v", service, err)
+		logger.Error("nak failed", err, "service", service)
 	}
 }

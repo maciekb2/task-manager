@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
+	"github.com/maciekb2/task-manager/pkg/logger"
 	"github.com/nats-io/nats.go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -59,7 +59,7 @@ func (p *AuditProcessor) Process(ctx context.Context, msg *nats.Msg) (flow.TaskE
 		return flow.TaskEnvelope{TaskID: event.TaskID, TraceParent: event.TraceParent}, err
 	}
 
-	log.Printf("audit: %s %s", event.Event, event.TaskID)
+	logger.WithContext(ctxSpan).Info("audit: event processed", "event", event.Event, "task_id", event.TaskID)
 	return flow.TaskEnvelope{TaskID: event.TaskID, TraceParent: event.TraceParent}, nil
 }
 
