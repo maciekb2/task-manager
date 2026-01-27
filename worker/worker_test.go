@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -198,5 +199,58 @@ func TestProcessLoop_BadPayload(t *testing.T) {
 
 	if !foundDeadLetter {
 		t.Error("expected deadletter event for bad payload")
+	}
+}
+
+func TestProcessLoop_HttpCheckFailure(t *testing.T) {
+	publisher := &MockPublisher{}
+	jobs := make(chan *nats.Msg, 1)
+
+	task := flow.TaskEnvelope{
+		TaskID:   "test-task-http-fail",
+		Priority: 1,
+		URL:      "http://error.com",
+		Method:   "GET",
+	}
+	data, _ := json.Marshal(task)
+	msg := &nats.Msg{
+		Subject: "tasks.worker.medium",
+		Data:    data,
+	}
+	jobs <- msg
+	close(jobs)
+
+	// Mock check returns an error (e.g. DNS failure)
+	// Code: return 0, latency, err
+	mockCheck := func(ctx context.Context, url, method string) (int, int64, error) {
+		return 0, 123, errors.New("dns error")
+	}
+
+	// failRate 0 to ensure we don't hit the simulated failure path
+	processLoop(context.Background(), publisher, jobs, 1, 0.0, mockCheck)
+
+	publisher.mu.Lock()
+	defer publisher.mu.Unlock()
+
+	// We expect a ResultEnvelope with Result=0
+	foundResult := false
+	for _, p := range publisher.Published {
+		if p.Subject == bus.SubjectTaskResults {
+			foundResult = true
+			res, ok := p.Payload.(flow.ResultEnvelope)
+			if !ok {
+				t.Errorf("expected ResultEnvelope, got %T", p.Payload)
+			}
+			if res.Task.TaskID != task.TaskID {
+				t.Errorf("expected task ID %s, got %s", task.TaskID, res.Task.TaskID)
+			}
+			if res.Result != 0 {
+				t.Errorf("expected result 0, got %d", res.Result)
+			}
+		}
+	}
+
+	if !foundResult {
+		t.Error("expected task result to be published even if http check fails")
 	}
 }
