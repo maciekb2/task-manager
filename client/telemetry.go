@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 
 	"google.golang.org/grpc"
 
@@ -72,12 +71,6 @@ func dialOpts() []grpc.DialOption {
 
 func otelEndpoint() string {
 	if endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); endpoint != "" {
-		if strings.HasPrefix(endpoint, "http://") {
-			return strings.TrimPrefix(endpoint, "http://")
-		}
-		if strings.HasPrefix(endpoint, "https://") {
-			return strings.TrimPrefix(endpoint, "https://")
-		}
 		return endpoint
 	}
 	return "tempo:4317"
