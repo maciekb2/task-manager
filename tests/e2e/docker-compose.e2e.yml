@@ -45,7 +45,7 @@ services:
     restart: unless-stopped
     environment:
       - REDIS_ADDR=redis-service:6379
-      - OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317
     depends_on:
       - notifier
       - redis-service
@@ -60,7 +60,7 @@ services:
     environment:
       - REDIS_ADDR=redis-service:6379
       - ENRICHER_URL=http://enricher:8080/enrich
-      - OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317
     depends_on:
       - redis-service
       - enricher
@@ -73,7 +73,7 @@ services:
       dockerfile: enricher/Dockerfile
     restart: unless-stopped
     environment:
-      - OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317
     networks:
       - taskmanager-net
 
@@ -84,7 +84,7 @@ services:
     restart: unless-stopped
     environment:
       - REDIS_ADDR=redis-service:6379
-      - OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317
     depends_on:
       - redis-service
     networks:
@@ -99,7 +99,7 @@ services:
       - REDIS_ADDR=redis-service:6379
       - WORKER_COUNT=4
       - WORKER_FAIL_RATE=0.05
-      - OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317
     depends_on:
       - redis-service
     networks:
@@ -112,7 +112,7 @@ services:
     restart: unless-stopped
     environment:
       - REDIS_ADDR=redis-service:6379
-      - OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317
     depends_on:
       - redis-service
     networks:
@@ -126,7 +126,7 @@ services:
     environment:
       - REDIS_ADDR=redis-service:6379
       - RESULT_STORE_PORT=8082
-      - OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317
     ports:
       - "8082:8082"
     depends_on:
@@ -141,7 +141,7 @@ services:
     restart: unless-stopped
     environment:
       - REDIS_ADDR=redis-service:6379
-      - OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317
     depends_on:
       - redis-service
     networks:
@@ -154,7 +154,7 @@ services:
     restart: unless-stopped
     environment:
       - REDIS_ADDR=redis-service:6379
-      - OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317
     depends_on:
       - redis-service
     networks:
@@ -173,11 +173,7 @@ services:
 
 networks:
   taskmanager-net:
-    name: taskmanager-net
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.28.0.0/16
 
 volumes:
   redis-data:

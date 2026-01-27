@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
@@ -70,6 +71,12 @@ func serverOpts() []grpc.ServerOption {
 
 func otelEndpoint() string {
 	if endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"); endpoint != "" {
+		if strings.HasPrefix(endpoint, "http://") {
+			return strings.TrimPrefix(endpoint, "http://")
+		}
+		if strings.HasPrefix(endpoint, "https://") {
+			return strings.TrimPrefix(endpoint, "https://")
+		}
 		return endpoint
 	}
 	return "tempo:4317"
