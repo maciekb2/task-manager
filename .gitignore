@@ -14,24 +14,27 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-<<<<<<< HEAD
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
-=======
->>>>>>> dev
 # Go workspace file
 go.work
 go.work.sum
 
 # env file
 .env
-<<<<<<< HEAD
-=======
 
 # Pliki binarne
 server/server
 client/client
+enricher/enricher
+worker/worker
+ingest/ingest
+scheduler/scheduler
+notifier/notifier
+result-store/result-store
+audit/audit
+deadletter/deadletter
 
 # Tymczasowe pliki systemowe
 *.DS_Store
@@ -39,5 +42,3 @@ client/client
 
 # Katalogi Go
 /vendor
-
->>>>>>> dev
