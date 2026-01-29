@@ -1,0 +1,590 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "panels": [],
+      "title": "Enricher Service",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(calls_total{service_name=\"task-enricher\"}[1m]))",
+          "legendFormat": "RPS",
+          "refId": "A"
+        }
+      ],
+      "title": "Enricher Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(duration_bucket{service_name=\"task-enricher\"}[5m])) by (le))",
+          "legendFormat": "P95 Latency",
+          "refId": "A"
+        }
+      ],
+      "title": "Enricher Latency (P95)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(calls_total{service_name=\"task-enricher\", status_code=\"STATUS_CODE_ERROR\"}[1m]))",
+          "legendFormat": "Errors",
+          "refId": "A"
+        }
+      ],
+      "title": "Enricher Errors",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "expr": "go_goroutines{job=\"enricher\"}",
+          "legendFormat": "Goroutines",
+          "refId": "A"
+        },
+        {
+          "expr": "go_memstats_heap_inuse_bytes{job=\"enricher\"}",
+          "legendFormat": "Heap In Use",
+          "refId": "B"
+        }
+      ],
+      "title": "Enricher Resources",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "id": 6,
+      "panels": [],
+      "title": "Notifier Service",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 10
+      },
+      "id": 7,
+      "targets": [
+        {
+          "expr": "sum(rate(calls_total{service_name=\"task-notifier\"}[1m]))",
+          "legendFormat": "RPS",
+          "refId": "A"
+        }
+      ],
+      "title": "Notifier Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 10
+      },
+      "id": 8,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(duration_bucket{service_name=\"task-notifier\"}[5m])) by (le))",
+          "legendFormat": "P95 Latency",
+          "refId": "A"
+        }
+      ],
+      "title": "Notifier Latency (P95)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 10
+      },
+      "id": 9,
+      "targets": [
+        {
+          "expr": "sum(rate(calls_total{service_name=\"task-notifier\", status_code=\"STATUS_CODE_ERROR\"}[1m]))",
+          "legendFormat": "Errors",
+          "refId": "A"
+        }
+      ],
+      "title": "Notifier Errors",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 10
+      },
+      "id": 10,
+      "targets": [
+        {
+          "expr": "go_goroutines{job=\"notifier\"}",
+          "legendFormat": "Goroutines",
+          "refId": "A"
+        },
+        {
+          "expr": "go_memstats_heap_inuse_bytes{job=\"notifier\"}",
+          "legendFormat": "Heap In Use",
+          "refId": "B"
+        }
+      ],
+      "title": "Notifier Resources",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "id": 11,
+      "panels": [],
+      "title": "Result Store Service",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 19
+      },
+      "id": 12,
+      "targets": [
+        {
+          "expr": "sum(rate(calls_total{service_name=\"task-result-store\"}[1m]))",
+          "legendFormat": "RPS",
+          "refId": "A"
+        }
+      ],
+      "title": "Result Store Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 19
+      },
+      "id": 13,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(duration_bucket{service_name=\"task-result-store\"}[5m])) by (le))",
+          "legendFormat": "P95 Latency",
+          "refId": "A"
+        }
+      ],
+      "title": "Result Store Latency (P95)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 19
+      },
+      "id": 14,
+      "targets": [
+        {
+          "expr": "sum(rate(calls_total{service_name=\"task-result-store\", status_code=\"STATUS_CODE_ERROR\"}[1m]))",
+          "legendFormat": "Errors",
+          "refId": "A"
+        }
+      ],
+      "title": "Result Store Errors",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 19
+      },
+      "id": 15,
+      "targets": [
+        {
+          "expr": "go_goroutines{job=\"result-store\"}",
+          "legendFormat": "Goroutines",
+          "refId": "A"
+        },
+        {
+          "expr": "go_memstats_heap_inuse_bytes{job=\"result-store\"}",
+          "legendFormat": "Heap In Use",
+          "refId": "B"
+        }
+      ],
+      "title": "Result Store Resources",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "id": 16,
+      "panels": [],
+      "title": "Audit Service",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 28
+      },
+      "id": 17,
+      "targets": [
+        {
+          "expr": "sum(rate(calls_total{service_name=\"task-audit\"}[1m]))",
+          "legendFormat": "RPS",
+          "refId": "A"
+        }
+      ],
+      "title": "Audit Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 28
+      },
+      "id": 18,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(duration_bucket{service_name=\"task-audit\"}[5m])) by (le))",
+          "legendFormat": "P95 Latency",
+          "refId": "A"
+        }
+      ],
+      "title": "Audit Latency (P95)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 28
+      },
+      "id": 19,
+      "targets": [
+        {
+          "expr": "sum(rate(calls_total{service_name=\"task-audit\", status_code=\"STATUS_CODE_ERROR\"}[1m]))",
+          "legendFormat": "Errors",
+          "refId": "A"
+        }
+      ],
+      "title": "Audit Errors",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 28
+      },
+      "id": 20,
+      "targets": [
+        {
+          "expr": "go_goroutines{job=\"audit\"}",
+          "legendFormat": "Goroutines",
+          "refId": "A"
+        },
+        {
+          "expr": "go_memstats_heap_inuse_bytes{job=\"audit\"}",
+          "legendFormat": "Heap In Use",
+          "refId": "B"
+        }
+      ],
+      "title": "Audit Resources",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "id": 21,
+      "panels": [],
+      "title": "Deadletter Service",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 37
+      },
+      "id": 22,
+      "targets": [
+        {
+          "expr": "sum(rate(calls_total{service_name=\"task-deadletter\"}[1m]))",
+          "legendFormat": "RPS",
+          "refId": "A"
+        }
+      ],
+      "title": "Deadletter Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 37
+      },
+      "id": 23,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(duration_bucket{service_name=\"task-deadletter\"}[5m])) by (le))",
+          "legendFormat": "P95 Latency",
+          "refId": "A"
+        }
+      ],
+      "title": "Deadletter Latency (P95)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 37
+      },
+      "id": 24,
+      "targets": [
+        {
+          "expr": "sum(rate(calls_total{service_name=\"task-deadletter\", status_code=\"STATUS_CODE_ERROR\"}[1m]))",
+          "legendFormat": "Errors",
+          "refId": "A"
+        }
+      ],
+      "title": "Deadletter Errors",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 37
+      },
+      "id": 25,
+      "targets": [
+        {
+          "expr": "go_goroutines{job=\"deadletter\"}",
+          "legendFormat": "Goroutines",
+          "refId": "A"
+        },
+        {
+          "expr": "go_memstats_heap_inuse_bytes{job=\"deadletter\"}",
+          "legendFormat": "Heap In Use",
+          "refId": "B"
+        }
+      ],
+      "title": "Deadletter Resources",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": [
+    "deep-dive",
+    "microservices",
+    "health"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "title": "Task Manager Microservices Deep Dive",
+  "uid": "taskmanager-microservices-deep-dive",
+  "version": 1
+}
