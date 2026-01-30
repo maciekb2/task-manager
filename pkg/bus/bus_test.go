@@ -9,6 +9,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -214,4 +215,24 @@ func TestCloneHeaders(t *testing.T) {
 	if cloned["Key1"][0] == "Modified" {
 		t.Error("cloneHeaders did not perform deep copy")
 	}
+}
+
+func TestMessageAttributes(t *testing.T) {
+	msg := &nats.Msg{
+		Subject: "test.subject",
+		Data:    []byte("data"),
+	}
+
+	attrs := MessageAttributes(msg)
+
+	// Expect at least subject
+	assert.NotEmpty(t, attrs)
+
+	foundSubject := false
+	for _, kv := range attrs {
+		if kv.Key == attribute.Key(AttrMessageSubject) && kv.Value.AsString() == "test.subject" {
+			foundSubject = true
+		}
+	}
+	assert.True(t, foundSubject, "expected subject attribute")
 }
