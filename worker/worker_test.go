@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
@@ -46,6 +47,24 @@ func TestPerformHttpCheck(t *testing.T) {
 	}
 	if latency < 0 {
 		t.Errorf("expected non-negative latency, got %d", latency)
+	}
+}
+
+func TestPerformHttpCheck_Timeout(t *testing.T) {
+	// Create a slow server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	// Context with timeout shorter than server response time
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	_, _, err := performHttpCheck(ctx, server.URL, "GET")
+	if err == nil {
+		t.Error("expected error due to timeout, got nil")
 	}
 }
 
