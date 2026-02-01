@@ -267,3 +267,64 @@ func TestStreamTaskStatus_PubSub(t *testing.T) {
 		t.Errorf("expected last status COMPLETED, got %s", lastStatus)
 	}
 }
+
+func TestSubmitTask_Defaults(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	mockBus := &MockBus{}
+	srv := newServer(rdb, mockBus)
+	ctx := context.Background()
+
+	// Task with missing Method
+	req := &pb.TaskRequest{
+		TaskDescription: "Default Method Task",
+		Url:             "http://defaults.com",
+		Priority:        pb.TaskPriority_MEDIUM,
+		// Method is intentionally empty
+	}
+
+	resp, err := srv.SubmitTask(ctx, req)
+	if err != nil {
+		t.Fatalf("SubmitTask failed: %v", err)
+	}
+
+	// Verify Redis
+	taskKey := "task:" + resp.TaskId
+
+	// Check Method
+	methodVal := mr.HGet(taskKey, "method")
+	if methodVal != "GET" {
+		t.Errorf("expected default method 'GET', got '%s'", methodVal)
+	}
+
+	// Check Status
+	statusVal := mr.HGet(taskKey, "status")
+	if statusVal != "QUEUED" {
+		t.Errorf("expected initial status 'QUEUED', got '%s'", statusVal)
+	}
+
+	// Verify Bus Message
+	found := false
+	for _, msg := range mockBus.Published {
+		if msg.Subject == bus.SubjectTaskIngest {
+			taskEnv, ok := msg.Payload.(flow.TaskEnvelope)
+			if !ok {
+				continue
+			}
+			if taskEnv.TaskID == resp.TaskId {
+				found = true
+				if taskEnv.Method != "GET" {
+					t.Errorf("expected bus message method 'GET', got '%s'", taskEnv.Method)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("TaskIngest message not found on bus")
+	}
+}
