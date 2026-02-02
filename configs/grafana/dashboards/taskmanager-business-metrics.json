@@ -10,10 +10,10 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Total Ingested",
+      "title": "Total Ingested (Range)",
       "gridPos": {
         "h": 4,
-        "w": 4,
+        "w": 3,
         "x": 0,
         "y": 0
       },
@@ -23,7 +23,7 @@
       },
       "targets": [
         {
-          "expr": "sum(tasks_received_total)",
+          "expr": "sum(increase(tasks_received_total{priority=~\"$priority\"}[$__range]))",
           "legendFormat": "",
           "refId": "A"
         }
@@ -51,11 +51,11 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Total Processed",
+      "title": "Total Processed (Range)",
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 4,
+        "w": 3,
+        "x": 3,
         "y": 0
       },
       "datasource": {
@@ -64,7 +64,7 @@
       },
       "targets": [
         {
-          "expr": "sum(tasks_processed_total)",
+          "expr": "sum(increase(tasks_processed_total{priority=~\"$priority\"}[$__range]))",
           "legendFormat": "",
           "refId": "A"
         }
@@ -92,11 +92,11 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Success Rate (5m)",
+      "title": "Success Rate",
       "gridPos": {
         "h": 4,
-        "w": 5,
-        "x": 8,
+        "w": 4,
+        "x": 6,
         "y": 0
       },
       "datasource": {
@@ -105,7 +105,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(tasks_processed_total{status=\"completed\"}[5m])) / sum(rate(tasks_processed_total[5m]))",
+          "expr": "sum(rate(tasks_processed_total{status=\"completed\", priority=~\"$priority\"}[$__rate_interval])) / sum(rate(tasks_processed_total{priority=~\"$priority\"}[$__rate_interval]))",
           "legendFormat": "",
           "refId": "A"
         }
@@ -144,12 +144,69 @@
       }
     },
     {
+      "id": 14,
+      "type": "stat",
+      "title": "Active Workers",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 10,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(up{job=\"worker\"})",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+             "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
       "id": 4,
       "type": "stat",
       "title": "Queue Backlog",
       "gridPos": {
         "h": 4,
-        "w": 5,
+        "w": 3,
         "x": 13,
         "y": 0
       },
@@ -185,13 +242,13 @@
       }
     },
     {
-      "id": 5,
+      "id": 15,
       "type": "stat",
-      "title": "E2E Latency (P95)",
+      "title": "DLQ Backlog",
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 18,
+        "w": 3,
+        "x": 16,
         "y": 0
       },
       "datasource": {
@@ -200,7 +257,61 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(taskmanager_task_e2e_seconds_bucket[5m])) by (le))",
+          "expr": "sum(jetstream_consumer_num_pending{consumer=~\".*deadletter.*\"})",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "E2E Latency (P95)",
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 19,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(taskmanager_task_e2e_seconds_bucket{task_priority=~\"$priority\"}[$__rate_interval])) by (le))",
           "legendFormat": "",
           "refId": "A"
         }
@@ -241,7 +352,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(tasks_received_total[1m]))",
+          "expr": "sum(rate(tasks_received_total{priority=~\"$priority\"}[$__rate_interval]))",
           "legendFormat": "Received",
           "refId": "A",
           "datasource": {
@@ -250,7 +361,7 @@
           }
         },
         {
-          "expr": "sum(rate(tasks_processed_total[1m]))",
+          "expr": "sum(rate(tasks_processed_total{priority=~\"$priority\"}[$__rate_interval]))",
           "legendFormat": "Processed",
           "refId": "B",
           "datasource": {
@@ -321,7 +432,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (priority) (rate(tasks_processed_total[1m]))",
+          "expr": "sum by (priority) (rate(tasks_processed_total{priority=~\"$priority\"}[$__rate_interval]))",
           "legendFormat": "Priority {{priority}}",
           "refId": "A",
           "datasource": {
@@ -392,7 +503,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(task_ingestion_duration_seconds_bucket[1m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(task_ingestion_duration_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "Ingestion P95",
           "refId": "A",
           "datasource": {
@@ -463,7 +574,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(task_processing_duration_seconds_bucket[1m])) by (le, priority))",
+          "expr": "histogram_quantile(0.95, sum(rate(task_processing_duration_seconds_bucket{priority=~\"$priority\"}[$__rate_interval])) by (le, priority))",
           "legendFormat": "Priority {{priority}}",
           "refId": "A",
           "datasource": {
@@ -534,7 +645,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(taskmanager_task_e2e_seconds_bucket[5m])) by (le)",
+          "expr": "sum(rate(taskmanager_task_e2e_seconds_bucket{task_priority=~\"$priority\"}[$__rate_interval])) by (le)",
           "format": "heatmap",
           "legendFormat": "{{le}}",
           "refId": "A"
@@ -544,7 +655,7 @@
     {
       "id": 11,
       "type": "piechart",
-      "title": "Task Outcome Distribution",
+      "title": "Task Outcome Distribution (Range)",
       "gridPos": {
         "h": 8,
         "w": 8,
@@ -557,7 +668,7 @@
       },
       "targets": [
         {
-          "expr": "sum(tasks_processed_total) by (status)",
+          "expr": "sum(increase(tasks_processed_total{priority=~\"$priority\"}[$__range])) by (status)",
           "legendFormat": "{{status}}",
           "refId": "A"
         }
@@ -579,7 +690,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(gnatsd_varz_in_msgs[1m]))",
+          "expr": "sum(rate(gnatsd_varz_in_msgs[$__rate_interval]))",
           "legendFormat": "Inbound",
           "refId": "A",
           "datasource": {
@@ -588,7 +699,7 @@
           }
         },
         {
-          "expr": "sum(rate(gnatsd_varz_out_msgs[1m]))",
+          "expr": "sum(rate(gnatsd_varz_out_msgs[$__rate_interval]))",
           "legendFormat": "Outbound",
           "refId": "B",
           "datasource": {
@@ -723,7 +834,39 @@
     "enhanced"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(tasks_processed_total, priority)",
+        "hide": 0,
+        "includeAll": true,
+        "multi": true,
+        "name": "priority",
+        "options": [],
+        "query": {
+          "query": "label_values(tasks_processed_total, priority)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
   },
   "time": {
     "from": "now-30m",
@@ -733,6 +876,6 @@
   "timezone": "",
   "title": "Task Manager Business Metrics (Enhanced)",
   "uid": "taskmanager-business-metrics",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }
