@@ -344,22 +344,30 @@ func handleFailure(c *Client, msg *nats.Msg, dlqSubject string, retry RetryPolic
 		return
 	}
 
-	if retry.MaxRetries <= 0 {
+	delivered := deliveredCount(msg)
+	action, delay := decideRetryAction(delivered, retry)
+
+	switch action {
+	case "dlq":
 		_ = publishDLQ(c, msg, dlqSubject, err)
 		_ = msg.Ack()
-		return
+	case "retry":
+		_ = nakWithDelay(msg, delay)
+	}
+}
+
+func decideRetryAction(delivered int, retry RetryPolicy) (string, time.Duration) {
+	if retry.MaxRetries <= 0 {
+		return "dlq", 0
 	}
 
-	delivered := deliveredCount(msg)
 	retryAttempt := delivered - 1
 	if retryAttempt >= retry.MaxRetries {
-		_ = publishDLQ(c, msg, dlqSubject, err)
-		_ = msg.Ack()
-		return
+		return "dlq", 0
 	}
 
 	delay := backoffFor(retry, retryAttempt+1)
-	_ = nakWithDelay(msg, delay)
+	return "retry", delay
 }
 
 func publishDLQ(c *Client, msg *nats.Msg, subject string, err error) error {
