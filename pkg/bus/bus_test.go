@@ -188,12 +188,71 @@ func TestTracePropagation(t *testing.T) {
 	assert.Equal(t, sc.TraceID(), span2.SpanContext().TraceID())
 }
 
-func TestHandleFailure_MaxRetries(t *testing.T) {
-	// Since handleFailure is hard to test without a mocked Client (which needs a real connection usually),
-	// we might skip deep testing of handleFailure here unless we mock the Client methods.
-	// But Client struct has private fields.
-	// However, we can test that logic generally if we could mock.
-	// For now, let's stick to the pure logic functions we already tested.
+func TestDecideRetryAction(t *testing.T) {
+	policy := RetryPolicy{
+		MaxRetries:     3,
+		InitialBackoff: 100 * time.Millisecond,
+		Multiplier:     2.0,
+	}
+
+	tests := []struct {
+		name          string
+		delivered     int
+		retry         RetryPolicy
+		expectedAction string
+		expectedDelay time.Duration
+	}{
+		{
+			name:           "First Delivery (0 retries so far)",
+			delivered:      1,
+			retry:          policy,
+			expectedAction: "retry",
+			expectedDelay:  100 * time.Millisecond,
+		},
+		{
+			name:           "Second Delivery (1 retry so far)",
+			delivered:      2,
+			retry:          policy,
+			expectedAction: "retry",
+			expectedDelay:  200 * time.Millisecond,
+		},
+		{
+			name:           "Third Delivery (2 retries so far)",
+			delivered:      3,
+			retry:          policy,
+			expectedAction: "retry",
+			expectedDelay:  400 * time.Millisecond,
+		},
+		{
+			name:           "Fourth Delivery (3 retries - limit reached)",
+			delivered:      4,
+			retry:          policy,
+			expectedAction: "dlq",
+			expectedDelay:  0,
+		},
+		{
+			name:           "Exceeds Limit",
+			delivered:      5,
+			retry:          policy,
+			expectedAction: "dlq",
+			expectedDelay:  0,
+		},
+		{
+			name:           "No Retries Allowed",
+			delivered:      1,
+			retry:          RetryPolicy{MaxRetries: 0},
+			expectedAction: "dlq",
+			expectedDelay:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			action, delay := decideRetryAction(tt.delivered, tt.retry)
+			assert.Equal(t, tt.expectedAction, action)
+			assert.Equal(t, tt.expectedDelay, delay)
+		})
+	}
 }
 
 func TestCloneHeaders(t *testing.T) {
