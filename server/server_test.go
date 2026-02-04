@@ -17,6 +17,7 @@ import (
 // MockBus implements BusClient for testing
 type MockBus struct {
 	Published []PublishedMessage
+	Fail      bool
 }
 
 type PublishedMessage struct {
@@ -25,6 +26,9 @@ type PublishedMessage struct {
 }
 
 func (m *MockBus) PublishJSON(ctx context.Context, subject string, payload any, headers nats.Header, opts ...nats.PubOpt) (*nats.PubAck, error) {
+	if m.Fail {
+		return nil, nats.ErrTimeout
+	}
 	m.Published = append(m.Published, PublishedMessage{Subject: subject, Payload: payload})
 	return &nats.PubAck{}, nil
 }
@@ -157,6 +161,58 @@ func TestSubmitTask_MissingURL(t *testing.T) {
 	_, err = srv.SubmitTask(ctx, req)
 	if err == nil {
 		t.Error("expected error for missing URL, got nil")
+	}
+}
+
+func TestSubmitTask_RedisError(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	mr.SetError("simulated redis connection lost")
+
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	mockBus := &MockBus{}
+	srv := newServer(rdb, mockBus)
+	ctx := context.Background()
+
+	req := &pb.TaskRequest{
+		TaskDescription: "Redis Fail Task",
+		Priority:        pb.TaskPriority_HIGH,
+		Url:             "http://example.com",
+		Method:          "POST",
+	}
+
+	_, err = srv.SubmitTask(ctx, req)
+	if err == nil {
+		t.Error("expected error when Redis fails, got nil")
+	}
+}
+
+func TestSubmitTask_BusError(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	mockBus := &MockBus{Fail: true} // Simulate Bus failure
+	srv := newServer(rdb, mockBus)
+	ctx := context.Background()
+
+	req := &pb.TaskRequest{
+		TaskDescription: "Bus Fail Task",
+		Priority:        pb.TaskPriority_HIGH,
+		Url:             "http://example.com",
+		Method:          "POST",
+	}
+
+	_, err = srv.SubmitTask(ctx, req)
+	if err == nil {
+		t.Error("expected error when Bus fails, got nil")
 	}
 }
 
