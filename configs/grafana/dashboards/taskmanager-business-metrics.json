@@ -8,6 +8,19 @@
   "links": [],
   "panels": [
     {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 20,
+      "panels": [],
+      "title": "High-Level KPIs",
+      "type": "row"
+    },
+    {
       "id": 1,
       "type": "stat",
       "title": "Total Ingested",
@@ -15,7 +28,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 0
+        "y": 1
       },
       "datasource": {
         "type": "prometheus",
@@ -23,7 +36,7 @@
       },
       "targets": [
         {
-          "expr": "sum(tasks_received_total)",
+          "expr": "sum(tasks_received_total{priority=~\"$priority\"})",
           "legendFormat": "",
           "refId": "A"
         }
@@ -56,7 +69,7 @@
         "h": 4,
         "w": 4,
         "x": 4,
-        "y": 0
+        "y": 1
       },
       "datasource": {
         "type": "prometheus",
@@ -64,7 +77,7 @@
       },
       "targets": [
         {
-          "expr": "sum(tasks_processed_total)",
+          "expr": "sum(tasks_processed_total{priority=~\"$priority\"})",
           "legendFormat": "",
           "refId": "A"
         }
@@ -97,7 +110,7 @@
         "h": 4,
         "w": 5,
         "x": 8,
-        "y": 0
+        "y": 1
       },
       "datasource": {
         "type": "prometheus",
@@ -105,7 +118,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(tasks_processed_total{status=\"completed\"}[5m])) / sum(rate(tasks_processed_total[5m]))",
+          "expr": "sum(rate(tasks_processed_total{status=\"completed\", priority=~\"$priority\"}[5m])) / sum(rate(tasks_processed_total{priority=~\"$priority\"}[5m]))",
           "legendFormat": "",
           "refId": "A"
         }
@@ -151,7 +164,7 @@
         "h": 4,
         "w": 5,
         "x": 13,
-        "y": 0
+        "y": 1
       },
       "datasource": {
         "type": "prometheus",
@@ -192,7 +205,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 0
+        "y": 1
       },
       "datasource": {
         "type": "prometheus",
@@ -200,7 +213,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(taskmanager_task_e2e_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(taskmanager_task_e2e_seconds_bucket{task_priority=~\"$priority\"}[5m])) by (le))",
           "legendFormat": "",
           "refId": "A"
         }
@@ -226,6 +239,19 @@
       }
     },
     {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 21,
+      "panels": [],
+      "title": "Throughput & Outcomes",
+      "type": "row"
+    },
+    {
       "id": 6,
       "type": "timeseries",
       "title": "System Throughput (Ingest vs Process)",
@@ -233,7 +259,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 4
+        "y": 6
       },
       "datasource": {
         "type": "prometheus",
@@ -241,7 +267,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(tasks_received_total[1m]))",
+          "expr": "sum(rate(tasks_received_total{priority=~\"$priority\"}[1m]))",
           "legendFormat": "Received",
           "refId": "A",
           "datasource": {
@@ -250,7 +276,7 @@
           }
         },
         {
-          "expr": "sum(rate(tasks_processed_total[1m]))",
+          "expr": "sum(rate(tasks_processed_total{priority=~\"$priority\"}[1m]))",
           "legendFormat": "Processed",
           "refId": "B",
           "datasource": {
@@ -313,7 +339,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 4
+        "y": 6
       },
       "datasource": {
         "type": "prometheus",
@@ -321,7 +347,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (priority) (rate(tasks_processed_total[1m]))",
+          "expr": "sum by (priority) (rate(tasks_processed_total{priority=~\"$priority\"}[1m]))",
           "legendFormat": "Priority {{priority}}",
           "refId": "A",
           "datasource": {
@@ -377,6 +403,121 @@
       }
     },
     {
+      "id": 11,
+      "type": "piechart",
+      "title": "Task Outcome Distribution",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 14
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(tasks_processed_total{priority=~\"$priority\"}) by (status)",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Success Rate Trend",
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 8,
+        "y": 14
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(tasks_processed_total{status=\"completed\", priority=~\"$priority\"}[5m])) / sum(rate(tasks_processed_total{priority=~\"$priority\"}[5m]))",
+          "legendFormat": "Success Rate",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "opacity",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "percentunit",
+           "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "id": 22,
+      "panels": [],
+      "title": "Latency Analysis",
+      "type": "row"
+    },
+    {
       "id": 8,
       "type": "timeseries",
       "title": "Ingestion Latency (P95)",
@@ -384,7 +525,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 12
+        "y": 23
       },
       "datasource": {
         "type": "prometheus",
@@ -455,7 +596,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 12
+        "y": 23
       },
       "datasource": {
         "type": "prometheus",
@@ -463,7 +604,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(task_processing_duration_seconds_bucket[1m])) by (le, priority))",
+          "expr": "histogram_quantile(0.95, sum(rate(task_processing_duration_seconds_bucket{priority=~\"$priority\"}[1m])) by (le, priority))",
           "legendFormat": "Priority {{priority}}",
           "refId": "A",
           "datasource": {
@@ -526,7 +667,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 12
+        "y": 23
       },
       "datasource": {
         "type": "prometheus",
@@ -534,7 +675,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(taskmanager_task_e2e_seconds_bucket[5m])) by (le)",
+          "expr": "sum(rate(taskmanager_task_e2e_seconds_bucket{task_priority=~\"$priority\"}[5m])) by (le)",
           "format": "heatmap",
           "legendFormat": "{{le}}",
           "refId": "A"
@@ -542,26 +683,17 @@
       ]
     },
     {
-      "id": 11,
-      "type": "piechart",
-      "title": "Task Outcome Distribution",
+      "collapsed": false,
       "gridPos": {
-        "h": 8,
-        "w": 8,
+        "h": 1,
+        "w": 24,
         "x": 0,
-        "y": 20
+        "y": 31
       },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(tasks_processed_total) by (status)",
-          "legendFormat": "{{status}}",
-          "refId": "A"
-        }
-      ]
+      "id": 23,
+      "panels": [],
+      "title": "Infrastructure & Health",
+      "type": "row"
     },
     {
       "id": 12,
@@ -570,8 +702,8 @@
       "gridPos": {
         "h": 8,
         "w": 8,
-        "x": 8,
-        "y": 20
+        "x": 0,
+        "y": 32
       },
       "datasource": {
         "type": "prometheus",
@@ -650,8 +782,8 @@
       "gridPos": {
         "h": 8,
         "w": 8,
-        "x": 16,
-        "y": 20
+        "x": 8,
+        "y": 32
       },
       "datasource": {
         "type": "prometheus",
@@ -713,6 +845,60 @@
           "unit": "short"
         }
       }
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Dead Letter Queue Depth",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 32
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(jetstream_consumer_num_pending{consumer=~\".*deadletter.*\"})",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        }
+      }
     }
   ],
   "schemaVersion": 39,
@@ -723,7 +909,35 @@
     "enhanced"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(tasks_processed_total, priority)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Priority",
+        "multi": true,
+        "name": "priority",
+        "options": [],
+        "query": {
+          "query": "label_values(tasks_processed_total, priority)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      }
+    ]
   },
   "time": {
     "from": "now-30m",
