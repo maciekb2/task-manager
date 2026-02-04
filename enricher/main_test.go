@@ -73,6 +73,28 @@ func TestHandleEnrich(t *testing.T) {
 			expectedCat:    "low",
 			expectedScore:  12 - 100, // -88
 		},
+		{
+			name:   "Empty URL",
+			method: http.MethodPost,
+			body: enrichRequest{
+				Priority: 0,
+				URL:      "", // len 0
+			},
+			expectedStatus: http.StatusOK,
+			expectedCat:    "low",
+			expectedScore:  0,
+		},
+		{
+			name:   "Long URL",
+			method: http.MethodPost,
+			body: enrichRequest{
+				Priority: 2,
+				URL:      "http://example.com/" + "a_very_long_path_segment_to_increase_score_significantly_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", // len 19 + 131 = 150
+			},
+			expectedStatus: http.StatusOK,
+			expectedCat:    "high",
+			expectedScore:  175 + 200, // 375
+		},
 	}
 
 	for _, tc := range tests {

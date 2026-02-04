@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
@@ -198,5 +199,22 @@ func TestProcessLoop_BadPayload(t *testing.T) {
 
 	if !foundDeadLetter {
 		t.Error("expected deadletter event for bad payload")
+	}
+}
+
+func TestPerformHttpCheck_Timeout(t *testing.T) {
+	// Server that sleeps longer than our timeout
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, _, err := performHttpCheck(ctx, server.URL, "GET")
+	if err == nil {
+		t.Error("expected timeout error, got nil")
 	}
 }
