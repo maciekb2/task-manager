@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/maciekb2/task-manager/pkg/bus"
 	"github.com/maciekb2/task-manager/pkg/flow"
@@ -198,5 +199,69 @@ func TestProcessLoop_BadPayload(t *testing.T) {
 
 	if !foundDeadLetter {
 		t.Error("expected deadletter event for bad payload")
+	}
+}
+
+func TestPerformHttpCheck_Timeout(t *testing.T) {
+	// Create a server that sleeps longer than our client timeout
+	// Since we can't easily control the client timeout in the function signature (it takes context),
+	// we will use a context with a very short timeout.
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	statusCode, _, err := performHttpCheck(ctx, server.URL, "GET")
+
+	if err == nil {
+		t.Error("expected timeout error, got nil")
+	}
+	if statusCode != 0 {
+		t.Errorf("expected status code 0 on timeout, got %d", statusCode)
+	}
+}
+
+func TestPerformHttpCheck_StatusErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		handler    func(w http.ResponseWriter, r *http.Request)
+		wantStatus int
+	}{
+		{
+			name: "404 Not Found",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNotFound)
+			},
+			wantStatus: 404,
+		},
+		{
+			name: "500 Internal Server Error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+			},
+			wantStatus: 500,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(tt.handler))
+			defer server.Close()
+
+			ctx := context.Background()
+			statusCode, _, err := performHttpCheck(ctx, server.URL, "GET")
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if statusCode != tt.wantStatus {
+				t.Errorf("expected status %d, got %d", tt.wantStatus, statusCode)
+			}
+		})
 	}
 }
