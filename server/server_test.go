@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -266,4 +267,65 @@ func TestStreamTaskStatus_PubSub(t *testing.T) {
 	if lastStatus != "COMPLETED" {
 		t.Errorf("expected last status COMPLETED, got %s", lastStatus)
 	}
+}
+
+func TestSubmitTask_RedisError(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	addr := mr.Addr()
+	// Close immediately to simulate failure
+	mr.Close()
+
+	rdb := redis.NewClient(&redis.Options{Addr: addr})
+	mockBus := &MockBus{}
+	srv := newServer(rdb, mockBus)
+	ctx := context.Background()
+
+	req := &pb.TaskRequest{
+		TaskDescription: "Redis Fail Task",
+		Url:             "http://example.com",
+	}
+
+	_, err = srv.SubmitTask(ctx, req)
+	if err == nil {
+		t.Error("expected error due to redis failure, got nil")
+	}
+}
+
+func TestSubmitTask_BusError(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+
+	// Mock bus that fails
+	mockBus := &MockBusWithError{
+		PubErr: errors.New("bus connection failed"),
+	}
+	srv := newServer(rdb, mockBus)
+	ctx := context.Background()
+
+	req := &pb.TaskRequest{
+		TaskDescription: "Bus Fail Task",
+		Url:             "http://example.com",
+	}
+
+	_, err = srv.SubmitTask(ctx, req)
+	if err == nil {
+		t.Error("expected error due to bus failure, got nil")
+	}
+}
+
+// MockBusWithError allows injecting an error
+type MockBusWithError struct {
+	PubErr error
+}
+
+func (m *MockBusWithError) PublishJSON(ctx context.Context, subject string, payload any, headers nats.Header, opts ...nats.PubOpt) (*nats.PubAck, error) {
+	return nil, m.PubErr
 }
